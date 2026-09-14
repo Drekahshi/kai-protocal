@@ -101,10 +101,118 @@ You help users with:
 
 Keep answers concise, professional, and friendly. Use bullet points where helpful.`;
 
+/** Stream from Google Gemini API via SSE */
+async function streamGemini(message: string): Promise<Response | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_PROMPT}\n\nUser Question: ${message}` }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 1024,
+          },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+
+    if (!res.ok || !res.body) return null;
+
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+
+    (async () => {
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (!data) continue;
+            try {
+              const chunk = JSON.parse(data);
+              const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+              if (text) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ token: text })}\n\n`));
+              }
+            } catch {
+              // skip unparseable SSE frame
+            }
+          }
+        }
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ done: true, sources: 0 })}\n\n`));
+      } finally {
+        await writer.close();
+      }
+    })();
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Non-streaming direct call to Google Gemini */
+async function callGemini(message: string): Promise<string | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_PROMPT}\n\nUser Question: ${message}` }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 1024,
+          },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── POST /api/chat ─────────────────────────────────────────────────────────────
 // Accepts { message, rag, stream? }
-// When stream=true  → proxies the FastAPI /stream SSE and returns a ReadableStream
-// When stream=false → calls /chat for a JSON response (legacy/fallback)
+// When stream=true  → proxies the FastAPI /stream SSE or Gemini/Groq SSE
+// When stream=false → calls /chat or direct LLM for a JSON response
 export async function POST(req: Request) {
   try {
     const { message, rag = true, stream = true } = await req.json();
@@ -115,13 +223,12 @@ export async function POST(req: Request) {
 
     // ── Streaming path ─────────────────────────────────────────────────────────
     if (stream) {
-      // Try FastAPI /stream endpoint first
+      // 1. Try FastAPI /stream endpoint first
       try {
         const ragRes = await fetch(`${RAG_API_URL}/stream`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ message, rag }),
-          // No AbortSignal — we forward the stream; the browser controls lifetime
         });
 
         if (ragRes.ok && ragRes.body) {
@@ -135,12 +242,136 @@ export async function POST(req: Request) {
           });
         }
       } catch {
-        // FastAPI offline — fall through to Groq direct stream
+        // FastAPI offline — fall through
       }
 
-      // Fallback: stream directly from Groq
-      try {
-        const groqRes = await fetch(GROQ_URL, {
+      // 2. Try Google Gemini API streaming directly
+      if (GEMINI_KEY) {
+        const geminiStream = await streamGemini(message);
+        if (geminiStream) return geminiStream;
+      }
+
+      // 3. Try Groq direct stream fallback
+      if (GROQ_API_KEY) {
+        try {
+          const groqRes = await fetch(GROQ_URL, {
+            method:  'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model:   GROQ_MODEL,
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user', content: message },
+              ],
+              stream:  true,
+              temperature: 0.3,
+              max_tokens: 1024,
+            }),
+            signal: AbortSignal.timeout(10_000),
+          });
+
+          if (groqRes.ok && groqRes.body) {
+            const { readable, writable } = new TransformStream();
+            const writer = writable.getWriter();
+            const encoder = new TextEncoder();
+
+            (async () => {
+              const reader = groqRes.body!.getReader();
+              const dec = new TextDecoder();
+              let buf = '';
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buf += dec.decode(value, { stream: true });
+                  const lines = buf.split('\n');
+                  buf = lines.pop() ?? '';
+                  for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6).trim();
+                    if (data === '[DONE]') {
+                      await writer.write(encoder.encode(
+                        `data: ${JSON.stringify({ done: true, sources: 0 })}\n\n`
+                      ));
+                      break;
+                    }
+                    try {
+                      const chunk = JSON.parse(data);
+                      const token = chunk.choices?.[0]?.delta?.content ?? '';
+                      if (token) {
+                        await writer.write(encoder.encode(
+                          `data: ${JSON.stringify({ token })}\n\n`
+                        ));
+                      }
+                    } catch { /* skip */ }
+                  }
+                }
+              } finally {
+                await writer.close();
+              }
+            })();
+
+            return new Response(readable, {
+              headers: {
+                'Content-Type':  'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection':    'keep-alive',
+                'X-Accel-Buffering': 'no',
+              },
+            });
+          }
+        } catch {
+          // Groq error — fall through to knowledge base
+        }
+      }
+
+      // 4. Built-in knowledge base fallback
+      return streamText(kaiKnowledgeFallback(message));
+    }
+
+    // ── Non-streaming (legacy JSON) path ────────────────────────────────────────
+    try {
+      if (rag) {
+        try {
+          const ragRes = await fetch(`${RAG_API_URL}/chat`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ message, rag: true }),
+            signal:  AbortSignal.timeout(5_000),
+          });
+          if (ragRes.ok) {
+            const ragData = await ragRes.json();
+            return NextResponse.json({
+              text:         ragData.text,
+              agent:        ragData.agent || 'KAI AVAX Agent',
+              rag_used:     true,
+              sources_count: ragData.sources_count ?? 0,
+            });
+          }
+        } catch {
+          // RAG server offline — fall through
+        }
+      }
+
+      // Try Google Gemini
+      if (GEMINI_KEY) {
+        const geminiText = await callGemini(message);
+        if (geminiText) {
+          return NextResponse.json({
+            text:          geminiText,
+            agent:         'KAI Gemini Agent',
+            rag_used:      false,
+            sources_count: 0,
+          });
+        }
+      }
+
+      // Try Groq
+      if (GROQ_API_KEY) {
+        const groqRes2 = await fetch(GROQ_URL, {
           method:  'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -152,120 +383,31 @@ export async function POST(req: Request) {
               { role: 'system', content: SYSTEM_PROMPT },
               { role: 'user', content: message },
             ],
-            stream:  true,
+            stream:  false,
             temperature: 0.3,
             max_tokens: 1024,
           }),
           signal: AbortSignal.timeout(10_000),
         });
-
-        if (!groqRes.ok || !groqRes.body) {
-          throw new Error(`Groq stream error: ${groqRes.status}`);
+        if (groqRes2.ok) {
+          const groqData = await groqRes2.json();
+          return NextResponse.json({
+            text:          groqData.choices?.[0]?.message?.content || 'No response.',
+            agent:         'KAI Groq Agent',
+            rag_used:      false,
+            sources_count: 0,
+          });
         }
-
-
-      // Transform Groq OpenAI SSE → our SSE format
-      const { readable, writable } = new TransformStream();
-      const writer = writable.getWriter();
-      const encoder = new TextEncoder();
-
-      (async () => {
-        const reader = groqRes.body!.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const lines = buf.split('\n');
-            buf = lines.pop() ?? '';
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              const data = line.slice(6).trim();
-              if (data === '[DONE]') {
-                await writer.write(encoder.encode(
-                  `data: ${JSON.stringify({ done: true, sources: 0 })}\n\n`
-                ));
-                break;
-              }
-              try {
-                const chunk = JSON.parse(data);
-                const token = chunk.choices?.[0]?.delta?.content ?? '';
-                if (token) {
-                  await writer.write(encoder.encode(
-                    `data: ${JSON.stringify({ token })}\n\n`
-                  ));
-                }
-              } catch { /* skip malformed chunks */ }
-            }
-          }
-        } finally {
-          await writer.close();
-        }
-      })();
-
-      return new Response(readable, {
-        headers: {
-          'Content-Type':  'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection':    'keep-alive',
-          'X-Accel-Buffering': 'no',
-        },
-      });
-      } catch {
-        // Groq also offline — stream the built-in knowledge base answer
-        return streamText(kaiKnowledgeFallback(message));
-      }
-    }
-
-    // ── Non-streaming (legacy JSON) path ────────────────────────────────────────
-    try {
-      if (rag) {
-        const ragRes = await fetch(`${RAG_API_URL}/chat`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ message, rag: true }),
-          signal:  AbortSignal.timeout(5_000),
-        });
-        if (!ragRes.ok) throw new Error(`RAG server error (${ragRes.status})`);
-        const ragData = await ragRes.json();
-        return NextResponse.json({
-          text:         ragData.text,
-          agent:        ragData.agent || 'KAI AVAX Agent',
-          rag_used:     true,
-          sources_count: ragData.sources_count ?? 0,
-        });
       }
 
-      const groqRes2 = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model:   GROQ_MODEL,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: message },
-          ],
-          stream:  false,
-          temperature: 0.3,
-          max_tokens: 1024,
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!groqRes2.ok) throw new Error(`Groq error: ${groqRes2.status}`);
-      const groqData = await groqRes2.json();
+      // Fallback
       return NextResponse.json({
-        text:          groqData.choices?.[0]?.message?.content || 'No response.',
-        agent:         'KAI AVAX Agent',
+        text:          kaiKnowledgeFallback(message),
+        agent:         'KAI Agent (offline)',
         rag_used:      false,
         sources_count: 0,
       });
     } catch {
-      // All LLMs offline — use built-in knowledge base
       return NextResponse.json({
         text:          kaiKnowledgeFallback(message),
         agent:         'KAI Agent (offline)',
@@ -275,13 +417,8 @@ export async function POST(req: Request) {
     }
 
   } catch (error: unknown) {
-    // Last-resort: built-in fallback so the chat never breaks
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[/api/chat]', msg);
-    if (true) { // always stream the fallback
-      return streamText(kaiKnowledgeFallback(
-        (await req.clone().json().catch(() => ({ message: '' }))).message || ''
-      ));
-    }
+    return streamText(kaiKnowledgeFallback(''));
   }
 }
