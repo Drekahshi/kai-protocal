@@ -86,7 +86,7 @@ export default function SDGImpactCard() {
         ].map(s => (
           <div key={s.l} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--mine-surface-2)', minWidth: 0 }}>
             <p style={{ fontSize: 10.5, color: 'var(--mine-text-2)', margin: '0 0 5px' }}>{s.l}</p>
-            <p className="mine-num" style={{ fontSize: 13, fontWeight: 500, color: 'var(--mine-text)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.v}</p>
+            <p className="mine-num" style={{ fontSize: 13, fontWeight: 500, color: 'var(--mine-text)', margin: 0, lineHeight: 1.3 }}>{s.v}</p>
           </div>
         ))}
       </div>
