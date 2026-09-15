@@ -215,7 +215,7 @@ export default function MinePage() {
       <div className="airdrop-main-grid" style={{ ...W, marginTop:44, display:'grid', gridTemplateColumns:'1fr 1fr', gap:28, alignItems:'start' }}>
 
         {/* LEFT COLUMN */}
-        <div style={{ display:'flex', flexDirection:'column', gap:28 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:28, minWidth:0 }}>
 
           {/* TOKEN DROPS */}
           <section>
@@ -327,7 +327,7 @@ export default function MinePage() {
         </div>
 
         {/* RIGHT COLUMN */}
-        <div style={{ display:'flex', flexDirection:'column', gap:28 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:28, minWidth:0 }}>
 
           {/* DAILY TASKS */}
           <section>
