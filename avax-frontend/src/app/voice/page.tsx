@@ -22,6 +22,10 @@ interface Msg {
 const WELCOME =
   "Hey, I'm KAI Voice Agent. Talk to me or type. I can read your Avalanche balances, check APYs and conservation NFTs, and prepare M-Pesa, swap, NFT and escrow plans for your approval. I never move money without you signing.";
 
+// Must match the server-side default in lib/mpesa.ts's MPESA_KES_PER_USD — this
+// client constant only exists to pre-convert into /api/mpesa/stk's `priceYbob`
+// (USD) field, which the server re-converts back to KES via usdToKes(). If the
+// server rate is ever overridden via env, this will silently drift out of sync.
 const USD_PER_KES = 130;
 
 export default function VoiceAgentPage() {
