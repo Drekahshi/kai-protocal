@@ -36,6 +36,8 @@ const QUICK = [
   { name: 'AI Agent',   href: '/ai',        icon: Bot },
   { name: 'Playground', href: '/nuvari',     icon: FlaskConical },
   { name: 'Scan & Pay', href: '/pay',        icon: ScanLine },
+  { name: 'Products',   href: '/products',   icon: CircleDollarSign },
+  { name: 'SDG Impact', href: '/sdg',        icon: Globe },
   { name: 'Securities', href: '/securities', icon: ShieldCheck },
   { name: 'NFT Mkt',    href: '/connft',     icon: ImageIcon },
   { name: 'Pools',      href: '/pools',      icon: Droplets },
