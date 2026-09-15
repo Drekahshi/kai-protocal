@@ -10,3 +10,4 @@ httpx
 pypdf
 python-multipart
 eth-account>=0.11.0
+cactus-needle>=2.0.13
