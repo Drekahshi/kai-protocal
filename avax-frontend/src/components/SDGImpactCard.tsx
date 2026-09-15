@@ -84,7 +84,7 @@ export default function SDGImpactCard() {
           { l: 'Impact tier',      v: `${badge} ${tier}` },
           { l: 'Airdrop bonus',    v: `${multiplier} multiplier` },
         ].map(s => (
-          <div key={s.l} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--mine-surface-2)' }}>
+          <div key={s.l} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--mine-surface-2)', minWidth: 0 }}>
             <p style={{ fontSize: 10.5, color: 'var(--mine-text-2)', margin: '0 0 5px' }}>{s.l}</p>
             <p className="mine-num" style={{ fontSize: 13, fontWeight: 500, color: 'var(--mine-text)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.v}</p>
           </div>
