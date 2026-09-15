@@ -9,6 +9,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY    || '';
 const GROQ_MODEL   = process.env.GROQ_MODEL      || 'llama-3.1-8b-instant';
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 const GEMINI_KEY   = process.env.GEMINI_API_KEY  || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL    || 'gemini-2.5-flash';
 
 // ── Built-in KAI knowledge base (fallback when all LLMs are offline) ──────────
 const KAI_KB: { match: RegExp; answer: string }[] = [
@@ -106,7 +107,7 @@ async function streamGemini(message: string): Promise<Response | null> {
   if (!GEMINI_KEY) return null;
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,7 +183,7 @@ async function callGemini(message: string): Promise<string | null> {
   if (!GEMINI_KEY) return null;
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
