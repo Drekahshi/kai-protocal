@@ -195,7 +195,13 @@ export const TOOLS: AgentTool[] = [
       try {
         const q = (args.query || '').trim();
         const where = q
-          ? { OR: [{ name: { contains: q } }, { category: { contains: q } }, { token: { contains: q } }] }
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' as const } },
+                { category: { contains: q, mode: 'insensitive' as const } },
+                { token: { contains: q, mode: 'insensitive' as const } },
+              ],
+            }
           : undefined;
         const products = await prisma.forestProduct.findMany({ where, take: 10, orderBy: { tvlKes: 'desc' } });
         return {
