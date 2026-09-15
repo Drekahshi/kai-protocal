@@ -1,4 +1,5 @@
 import { http, createConfig } from 'wagmi';
+import type { CreateConnectorFn } from '@wagmi/core';
 import { avalancheFuji, avalanche } from 'wagmi/chains';
 import { injected } from 'wagmi/connectors';
 import { kaiPrivateKeyConnector } from './kai-private-key-connector';
@@ -6,8 +7,10 @@ import { kaiPrivateKeyConnector } from './kai-private-key-connector';
 const fujiRpc = process.env.NEXT_PUBLIC_AVAX_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc';
 
 const kaiPrivateKey = process.env.NEXT_PUBLIC_KAI_PRIVATE_KEY?.trim();
-const kaiConnectors = kaiPrivateKey
-  ? [kaiPrivateKeyConnector({ privateKey: `0x${kaiPrivateKey.replace(/^0x/, '')}` })]
+const kaiConnectors: CreateConnectorFn[] = kaiPrivateKey
+  ? ([kaiPrivateKeyConnector({
+      privateKey: `0x${kaiPrivateKey.replace(/^0x/, '')}`,
+    })] as CreateConnectorFn[])
   : [];
 
 export const config = createConfig({
