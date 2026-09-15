@@ -316,9 +316,9 @@ export default function MinePage() {
                   { l:'Total mined',  v:`${minedAmount.toFixed(3)} NVR` },
                   { l:'Status',       v:agentOn?'Active':'Idle' },
                 ].map(s => (
-                  <div key={s.l} style={{ padding:'12px 14px', borderRadius:10, background:'var(--mine-surface-2)' }}>
+                  <div key={s.l} style={{ padding:'12px 14px', borderRadius:10, background:'var(--mine-surface-2)', minWidth:0 }}>
                     <p style={{ fontSize:10.5, color:'var(--mine-text-2)', margin:'0 0 5px' }}>{s.l}</p>
-                    <p className="mine-num" style={{ fontSize:14, fontWeight:500, color:'var(--mine-text)', margin:0 }}>{s.v}</p>
+                    <p className="mine-num" style={{ fontSize:14, fontWeight:500, color:'var(--mine-text)', margin:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.v}</p>
                   </div>
                 ))}
               </div>
@@ -468,16 +468,16 @@ export default function MinePage() {
           {/* COUNTDOWN */}
           <div className="mine-card" style={{ padding:'18px 20px', display:'flex', alignItems:'center', gap:18 }}>
             <div style={cardIcon}><Timer size={19} /></div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontSize:12, color:'var(--mine-text-2)', margin:'0 0 4px' }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ fontSize:12, color:'var(--mine-text-2)', margin:'0 0 4px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                 {claimed ? 'Next claim available in' : 'Daily claim resets in'}
               </p>
               <p className="mine-num" style={{ fontSize:26, fontWeight:500, color:'var(--mine-text)', margin:0, letterSpacing:1 }}>
                 {fmt(countdown)}
               </p>
             </div>
-            <div style={{ width:1, height:34, background:'var(--mine-line)' }} />
-            <div style={{ minWidth:86 }}>
+            <div style={{ width:1, height:34, background:'var(--mine-line)', flexShrink:0 }} />
+            <div style={{ minWidth:86, flexShrink:0 }}>
               <p style={{ fontSize:11.5, color:'var(--mine-text-2)', margin:'0 0 4px' }}>Streak</p>
               <p className="mine-num" style={{ fontSize:17, fontWeight:500, color:'var(--mine-text)', margin:0 }}>
                 {streak} {streak === 1 ? 'day' : 'days'}
