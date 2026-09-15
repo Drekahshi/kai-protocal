@@ -135,7 +135,7 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        vault: { type: 'string', description: 'Optional vault/symbol to query. If omitted, return all.' },
+        vault: { type: 'STRING', description: 'Optional vault/symbol to query. If omitted, return all.' },
       },
       required: [],
     },
@@ -154,7 +154,7 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        token: { type: 'string', description: 'Token symbol, e.g. AVAX or yBOB.' },
+        token: { type: 'STRING', description: 'Token symbol, e.g. AVAX or yBOB.' },
       },
       required: ['token'],
     },
@@ -173,8 +173,8 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        address: { type: 'string', description: '0x wallet address (checksummed or lowercase)' },
-        token: { type: 'string', description: 'Token symbol. Default AVAX.' },
+        address: { type: 'STRING', description: '0x wallet address (checksummed or lowercase)' },
+        token: { type: 'STRING', description: 'Token symbol. Default AVAX.' },
       },
       required: ['address'],
     },
@@ -187,7 +187,7 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        query: { type: 'string', description: 'Search term, e.g. forest, tree species name, or category.' },
+        query: { type: 'STRING', description: 'Search term, e.g. forest, tree species name, or category.' },
       },
       required: [],
     },
@@ -221,9 +221,9 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        fromToken: { type: 'string', description: 'Token to sell, e.g. AVAX' },
-        fromAmount: { type: 'string', description: 'Amount to sell' },
-        toToken: { type: 'string', description: 'Token to receive' },
+        fromToken: { type: 'STRING', description: 'Token to sell, e.g. AVAX' },
+        fromAmount: { type: 'STRING', description: 'Amount to sell' },
+        toToken: { type: 'STRING', description: 'Token to receive' },
       },
       required: ['fromToken', 'fromAmount', 'toToken'],
     },
@@ -256,9 +256,9 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        phone: { type: 'string', description: 'Safaricom number in 2547XXXXXXXX format' },
-        amountKes: { type: 'string', description: 'Amount in Kenya Shillings' },
-        purpose: { type: 'string', description: 'What the payment is for' },
+        phone: { type: 'STRING', description: 'Safaricom number in 2547XXXXXXXX format' },
+        amountKes: { type: 'STRING', description: 'Amount in Kenya Shillings' },
+        purpose: { type: 'STRING', description: 'What the payment is for' },
       },
       required: ['phone', 'amountKes', 'purpose'],
     },
@@ -290,8 +290,8 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        nftId: { type: 'string', description: 'NFT id from the catalog (e.g. nft5 or a returned id)' },
-        paymentMethod: { type: 'string', enum: ['mpesa', 'card', 'yBOB'], description: 'Preferred payment method' },
+        nftId: { type: 'STRING', description: 'NFT id from the catalog (e.g. nft5 or a returned id)' },
+        paymentMethod: { type: 'STRING', enum: ['mpesa', 'card', 'yBOB'], description: 'Preferred payment method' },
       },
       required: ['nftId', 'paymentMethod'],
     },
@@ -313,9 +313,9 @@ export const TOOLS: AgentTool[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        purpose: { type: 'string', description: 'What the escrow protects' },
-        valueUsd: { type: 'string', description: 'Value in USD' },
-        condition: { type: 'string', description: 'Condition that must be met for release' },
+        purpose: { type: 'STRING', description: 'What the escrow protects' },
+        valueUsd: { type: 'STRING', description: 'Value in USD' },
+        condition: { type: 'STRING', description: 'Condition that must be met for release' },
       },
       required: ['purpose', 'valueUsd', 'condition'],
     },

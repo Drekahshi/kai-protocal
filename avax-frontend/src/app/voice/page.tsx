@@ -63,12 +63,12 @@ export default function VoiceAgentPage() {
       let accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
       await ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0xa86a' }],
+        params: [{ chainId: '0xa869' }], // 43113 — Avalanche Fuji C-Chain (0xa86a/43114 is mainnet)
       }).catch(async () => {
         await ethereum.request({
           method: 'wallet_addEthereumChain',
           params: [{
-            chainId: '0xa86a',
+            chainId: '0xa869',
             chainName: 'Avalanche Fuji C-Chain',
             rpcUrls: ['https://api.avax-test.network/ext/bc/C/rpc'],
             nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
@@ -169,7 +169,7 @@ export default function VoiceAgentPage() {
     const msg = (text ?? input).trim();
     if (!msg || loading) return;
     setInput('');
-    setMessages((p) => [...p, { role: 'user', text: msg }]);
+    setMessages((p) => [...p, { role: 'user', text: msg }, { role: 'ai', text: '' }]);
     setLoading(true);
     setStkStatus(null);
 
@@ -216,32 +216,50 @@ export default function VoiceAgentPage() {
           }
           if (typeof json.token === 'string') {
             aiText += json.token;
+            // Append to the live AI placeholder bubble pushed at the start of send().
             setMessages((p) => {
-              const last = p[p.length - 1];
-              if (last?.role === 'ai' && p.length === (p.length > 1 ? 2 : 1) || aiText.length < 2) {
-                // append to the live AI bubble
-                const clone = p.slice();
-                const idx = clone.length - 1;
-                if (clone[idx]?.role === 'ai') {
-                  clone[idx] = { ...clone[idx], text: aiText };
-                }
-                return clone;
-              }
-              return p;
+              const idx = p.length - 1;
+              if (p[idx]?.role !== 'ai') return p;
+              const clone = p.slice();
+              clone[idx] = { ...clone[idx], text: aiText };
+              return clone;
             });
           }
         }
       }
 
       if (aiText) {
-        setMessages((p) => [...p, { role: 'ai', text: aiText, plans }]);
+        setMessages((p) => {
+          const idx = p.length - 1;
+          if (p[idx]?.role !== 'ai') return p;
+          const clone = p.slice();
+          clone[idx] = { ...clone[idx], text: aiText, plans };
+          return clone;
+        });
         speak(aiText);
       } else if (plans.length) {
-        setMessages((p) => [...p, { role: 'ai', text: '**Please review the plan below and approve or reject it.**', plans }]);
+        setMessages((p) => {
+          const idx = p.length - 1;
+          const text = '**Please review the plan below and approve or reject it.**';
+          if (p[idx]?.role !== 'ai') return [...p, { role: 'ai', text, plans }];
+          const clone = p.slice();
+          clone[idx] = { ...clone[idx], text, plans };
+          return clone;
+        });
         speak('Please review the plan and approve or reject it.');
+      } else {
+        // Neither text nor a plan came back — drop the empty placeholder bubble.
+        setMessages((p) => (p[p.length - 1]?.role === 'ai' && !p[p.length - 1].text ? p.slice(0, -1) : p));
       }
     } catch {
-      setMessages((p) => [...p, { role: 'ai', text: '**Voice Agent error.** If money is involved, nothing was sent. Try again.' }]);
+      const text = '**Voice Agent error.** If money is involved, nothing was sent. Try again.';
+      setMessages((p) => {
+        const idx = p.length - 1;
+        if (p[idx]?.role !== 'ai') return [...p, { role: 'ai', text }];
+        const clone = p.slice();
+        clone[idx] = { ...clone[idx], text };
+        return clone;
+      });
     } finally {
       setLoading(false);
       setInterim('');
