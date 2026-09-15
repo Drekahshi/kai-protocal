@@ -158,7 +158,7 @@ export default function Home() {
     if (!agentQ.trim() || agentBusy) return;
     setAgentBusy(true); setAgentA('');
     try {
-      const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:agentQ, rag:true }) });
+      const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message: agentQ, rag: true, stream: false }) });
       const d = await r.json();
       setAgentA(d.text || d.response || 'No answer returned.');
     } catch { setAgentA('Agent offline. Start the server.'); }
