@@ -318,7 +318,7 @@ export default function MinePage() {
                 ].map(s => (
                   <div key={s.l} style={{ padding:'12px 14px', borderRadius:10, background:'var(--mine-surface-2)', minWidth:0 }}>
                     <p style={{ fontSize:10.5, color:'var(--mine-text-2)', margin:'0 0 5px' }}>{s.l}</p>
-                    <p className="mine-num" style={{ fontSize:14, fontWeight:500, color:'var(--mine-text)', margin:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.v}</p>
+                    <p className="mine-num" style={{ fontSize:14, fontWeight:500, color:'var(--mine-text)', margin:0, lineHeight:1.3 }}>{s.v}</p>
                   </div>
                 ))}
               </div>
@@ -469,7 +469,7 @@ export default function MinePage() {
           <div className="mine-card" style={{ padding:'18px 20px', display:'flex', alignItems:'center', gap:18 }}>
             <div style={cardIcon}><Timer size={19} /></div>
             <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ fontSize:12, color:'var(--mine-text-2)', margin:'0 0 4px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              <p style={{ fontSize:12, color:'var(--mine-text-2)', margin:'0 0 4px', lineHeight:1.35 }}>
                 {claimed ? 'Next claim available in' : 'Daily claim resets in'}
               </p>
               <p className="mine-num" style={{ fontSize:26, fontWeight:500, color:'var(--mine-text)', margin:0, letterSpacing:1 }}>
