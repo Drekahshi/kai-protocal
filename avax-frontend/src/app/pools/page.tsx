@@ -12,7 +12,7 @@
  * Contract addresses from src/lib/defiAddresses.json.
  */
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import Link from "next/link";
 import {
   useAccount, useSwitchChain, useWriteContract,
@@ -20,12 +20,14 @@ import {
 } from "wagmi";
 import { avalancheFuji } from "wagmi/chains";
 import { parseUnits, formatUnits, maxUint256 } from "viem";
-import { Activity, ArrowDownUp, Droplets, BarChart3, ExternalLink, RefreshCw, ArrowLeft } from "lucide-react";
+import { ArrowDownUp, Droplets, BarChart3, ExternalLink, RefreshCw, ArrowLeft, TrendingUp, Wallet } from "lucide-react";
 import WalletConnectModal from "@/components/WalletConnectModal";
 import CryptoBubblesCanvas, { KAI_TOKENS } from "@/components/pools/CryptoBubblesCanvas";
 import type { PoolToken } from "@/components/pools/CryptoBubblesCanvas";
 import type { StakePosition } from "@/components/pools/PoolDrawer";
 import PoolDrawer from "@/components/pools/PoolDrawer";
+import PoolStatsCard from "@/components/pools/PoolStatsCard";
+import { useAnimNumber } from "@/lib/useAnimNumber";
 import { ECOSYSTEM_TOKENS } from "@/lib/tokens";
 import { ERC20_ABI } from "@/lib/erc20abi";
 import { POOL_ABI, AMM_ABI } from "@/lib/defiAbis";
@@ -60,8 +62,36 @@ const POOLS: PoolDef[] = (defiAddrs.pools as PoolDef[]).length > 0
 const AMM_ADDR = (defiAddrs.amm?.address ?? null) as Addr | null;
 const EXPLORER = defiAddrs.explorerBase ?? "https://testnet.snowtrace.io";
 
-// ─── Swap token list ─────────────────────────────────────────────────────────
+// ─── Swap token list / pair metadata ─────────────────────────────────────────
 const SWAP_TOKENS = ["NVR","yBOB","YTOKEN","YGOLD","GAMI","CENTS"];
+
+/** Discovery metadata for on-chain pairs → bubble canvas tokens. */
+const PAIR_TO_TOKEN: Record<string, { id: string; apy: number; tvl: number }> = {
+  "NVR/yBOB":     { id: "nvr",    apy: 18.5, tvl: 1250000 },
+  "YTOKEN/YGOLD": { id: "ytoken", apy: 14.8, tvl: 890000  },
+  "GAMI/CENTS":   { id: "gami",   apy: 22.0, tvl: 450000  },
+};
+
+const TOTAL_TVL = POOLS.reduce((s, p) => s + (PAIR_TO_TOKEN[p.pair]?.tvl ?? 0), 0);
+const AVG_APY = POOLS.length ? POOLS.reduce((s, p) => s + (PAIR_TO_TOKEN[p.pair]?.apy ?? 0), 0) / POOLS.length : 0;
+
+// ─── Small animated stat chip ────────────────────────────────────────────────
+function StatChip({ label, value, suffix = "", color = "#34d399", live = false, decimals = 0 }: {
+  label: string; value: number; suffix?: string; color?: string; live?: boolean; decimals?: number;
+}) {
+  const v = useAnimNumber(value);
+  return (
+    <div className="glass rounded-xl px-3 py-2.5 min-w-0">
+      <p className="text-[9px] font-bold text-white/40 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+        {live && <span className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" />}
+        {label}
+      </p>
+      <p className="text-sm font-black font-mono tabular-nums truncate" style={{ color }}>
+        {live ? suffix : `${v.toLocaleString(undefined, { maximumFractionDigits: decimals })}${suffix}`}
+      </p>
+    </div>
+  );
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PoolsPage() {
@@ -84,10 +114,7 @@ export default function PoolsPage() {
   const [swapIn,    setSwapIn]    = useState("NVR");
   const [swapOut,   setSwapOut]   = useState("yBOB");
   const [swapAmt,   setSwapAmt]   = useState("");
-  const [minOut,    setMinOut]    = useState("0");
-  const [quoteOut,  setQuoteOut]  = useState<string>(""); // live on-chain quote
-  const [quotePool, setQuotePool] = useState<string>(""); // which pool is used
-  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [flipKey,   setFlipKey]   = useState(0);
 
   // ── Valid output tokens for each input (based on deployed pools) ──────────
   const validOutputTokens = (tokenIn: string): string[] => {
@@ -114,6 +141,13 @@ export default function PoolsPage() {
     }
   };
 
+  const flipPair = () => {
+    handleSwapInChange(swapOut);
+    setSwapOut(swapIn);
+    setSwapAmt("");
+    setFlipKey(k => k + 1);
+  };
+
   // ── Resolve which pool serves swapIn → swapOut ────────────────────────────
   const getRoutingPool = (tokenIn: string, tokenOut: string) => {
     const inAddr  = tokenAddr(tokenIn);
@@ -126,7 +160,6 @@ export default function PoolsPage() {
   };
 
   // ── Live quote: read getAmountOut from the pool contract ──────────────────
-  // We use useReadContract with a dynamic key so it re-fetches on every input change.
   const routingPool = getRoutingPool(swapIn, swapOut);
   const inAddr      = tokenAddr(swapIn);
   const amtWeiForQuote =
@@ -158,15 +191,10 @@ export default function PoolsPage() {
     ? parseFloat(formatUnits(quoteRaw as bigint, tokenDec(swapOut))).toFixed(6)
     : "";
 
-  // Auto-set minOut at 0.5% below quote (slippage guard)
-  useEffect(() => {
-    if (!quoteRaw || quoteRaw === 0n) {
-      setMinOut("0");
-      return;
-    }
-    const slippage = ((quoteRaw as bigint) * 9950n) / 10000n; // 0.5% slippage
-    setMinOut(formatUnits(slippage, tokenDec(swapOut)));
-  }, [quoteRaw, swapOut]);
+  // Slippage guard (0.5%) — derived, no extra effect needed.
+  const minOut = quoteRaw && quoteRaw !== 0n
+    ? formatUnits(((quoteRaw as bigint) * 9950n) / 10000n, tokenDec(swapOut))
+    : "0";
 
   // ── Liquidity state ───────────────────────────────────────────────────────
   const [liqPool,  setLiqPool]  = useState(POOLS[0]?.pair ?? "");
@@ -208,6 +236,34 @@ export default function PoolsPage() {
     };
   });
 
+  // Derived market overview
+  const deployedCount = POOLS.filter(p => p.address).length;
+
+  const openDrawerForPair = (pair: string) => {
+    const meta = PAIR_TO_TOKEN[pair];
+    if (!meta) return;
+    const tok = KAI_TOKENS.find(k => k.id === meta.id);
+    if (tok) setSelectedToken(tok);
+  };
+
+  // ── Swap price intelligence (fee + impact from live reserves) ─────────────
+  const swapInNum  = parseFloat(swapAmt) || 0;
+  const swapOutNum = parseFloat(quoteFormatted) || 0;
+  const routeInfo  = poolInfo.find(pi => pi.pair === routingPool?.pair);
+
+  let priceImpact = 0;
+  let feeEst      = 0;
+  if (routeInfo && swapInNum > 0 && swapOutNum > 0) {
+    const inResWei  = routingPool!.tokenA === inAddr ? routeInfo.reserveA : routeInfo.reserveB;
+    const outResWei = routingPool!.tokenA === inAddr ? routeInfo.reserveB : routeInfo.reserveA;
+    const rIn  = parseFloat(formatUnits(inResWei,  tokenDec(swapIn)));
+    const rOut = parseFloat(formatUnits(outResWei, tokenDec(swapOut)));
+    const ideal = rIn > 0 ? (swapInNum * rOut) / rIn : 0;
+    if (ideal > 0) priceImpact = Math.max(0, (1 - swapOutNum / ideal) * 100);
+    feeEst = swapOutNum * 0.003; // 0.3% pool fee
+  }
+  const impactColor = priceImpact > 1.5 ? "#F87171" : priceImpact > 0.5 ? "#FBBF24" : "#34d399";
+
   // ── Swap handler ──────────────────────────────────────────────────────────
   const handleSwap = async () => {
     if (!isConnected || !address) { setShowModal(true); return; }
@@ -244,7 +300,7 @@ export default function PoolsPage() {
       });
       setTxUrl(`${EXPLORER}/tx/${swapTx}`);
       setStatusMsg(`Swapped ${swapAmt} ${swapIn} -> ${swapOut}! Tx: ${swapTx.slice(0,14)}...`);
-      setSwapAmt(""); setMinOut("0");
+      setSwapAmt("");
       await handleRefresh();
     } catch (e: unknown) {
       setStatusMsg(`${e instanceof Error ? e.message.slice(0, 120) : "Swap failed"}`);
@@ -337,9 +393,17 @@ export default function PoolsPage() {
           <h1 className="text-2xl font-black text-white m-0">KAI Pools & AMM</h1>
           <p className="text-xs text-white/45 mt-0.5">x*y=k AMM · Real ERC-20 swaps · Fuji C-Chain</p>
         </div>
-        <button onClick={handleRefresh} className="p-2 rounded-lg border border-white/10 bg-white/5 cursor-pointer">
-          <RefreshCw size={15} color="#10b981" />
+        <button onClick={handleRefresh} className="p-2 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:bg-white/10 transition-all active:scale-90" aria-label="Refresh pool data">
+          <RefreshCw size={15} color="#10b981" className={busy ? "animate-spin" : ""} />
         </button>
+      </div>
+
+      {/* Market overview strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <StatChip label="Platform TVL" value={TOTAL_TVL} suffix="" color="#34d399" />
+        <StatChip label="Active Pools" value={deployedCount} suffix={`/${POOLS.length}`} color="#A78BFA" decimals={0} />
+        <StatChip label="Avg APY" value={AVG_APY} suffix="%" color="#FBBF24" decimals={1} />
+        <StatChip label="Live" value={0} suffix="Fuji C-Chain" color="#22D3EE" live />
       </div>
 
       {/* Not deployed warning */}
@@ -358,6 +422,47 @@ export default function PoolsPage() {
         </div>
       )}
 
+      {/* Live pool overview cards (click to open pool drawer) */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-black text-white/80 uppercase tracking-widest flex items-center gap-2">
+            <TrendingUp size={14} className="text-[#34d399]" /> Live Pool Overview
+          </h2>
+          <span className="text-[10px] font-mono text-white/40 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" /> auto-refresh on-chain
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {POOLS.map(p => {
+            const info = poolInfo.find(pi => pi.pair === p.pair);
+            const meta = PAIR_TO_TOKEN[p.pair];
+            const symA = SWAP_TOKENS.find(s => tokenAddr(s) === p.tokenA) ?? p.pair.split("/")[0];
+            const symB = SWAP_TOKENS.find(s => tokenAddr(s) === p.tokenB) ?? p.pair.split("/")[1];
+            const rA   = info ? parseFloat(formatUnits(info.reserveA, tokenDec(symA))) : 0;
+            const rB   = info ? parseFloat(formatUnits(info.reserveB, tokenDec(symB))) : 0;
+            const spot = rA * rB > 0 ? rB / rA : 1;
+            return (
+              <PoolStatsCard
+                key={p.pair}
+                pair={p.pair}
+                symbolA={symA}
+                symbolB={symB}
+                colorA={tokenColor(symA)}
+                colorB={tokenColor(symB)}
+                apy={meta?.apy ?? 0}
+                tvl={meta?.tvl ?? 0}
+                spot={spot}
+                reserveA={rA}
+                reserveB={rB}
+                deployed={!!p.address}
+                staked={!!(meta && stakedPositions[meta.id])}
+                onOpen={() => openDrawerForPair(p.pair)}
+              />
+            );
+          })}
+        </div>
+      </section>
+
       {/* Bubble canvas */}
       <CryptoBubblesCanvas onSelectPool={setSelectedToken} stakedPositions={stakedPositions} />
 
@@ -365,7 +470,7 @@ export default function PoolsPage() {
       <div className="flex gap-2 bg-black/20 p-1 rounded-xl">
         {([["swap", "Swap", ArrowDownUp], ["liquidity", "Liquidity", Droplets], ["info", "Info", BarChart3]] as const).map(([id, label, Icon]) => (
           <button key={id} onClick={() => { setActiveTab(id); setStatusMsg(""); setTxUrl(null); }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === id ? "bg-[#10b981] text-white" : "text-white/50 hover:text-white"}`}>
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === id ? "bg-[#10b981] text-white shadow-lg shadow-[#10b981]/30" : "text-white/50 hover:text-white"}`}>
             <Icon size={13} />{label}
           </button>
         ))}
@@ -374,7 +479,15 @@ export default function PoolsPage() {
       {/* ── SWAP TAB ── */}
       {activeTab === "swap" && (
         <div className="glass rounded-2xl p-5" style={{ border: "1px solid rgba(16,185,129,0.2)" }}>
-          <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-4">Swap Tokens via KaiAMM</p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold text-white/40 uppercase tracking-wider">Swap Tokens via KaiAMM</p>
+            {routingPool?.address && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#34d399]/30 bg-[#34d399]/10 px-2.5 py-1 text-[10px] font-bold text-[#34d399]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" />
+                routed via {routingPool.pair}
+              </span>
+            )}
+          </div>
 
           {/* Token In */}
           <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 14, padding: "12px 16px", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 4 }}>
@@ -394,9 +507,11 @@ export default function PoolsPage() {
 
           {/* Flip */}
           <div className="flex justify-center my-1">
-            <button onClick={() => { handleSwapInChange(swapOut); setSwapOut(swapIn); }}
-              style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#10b981,#064e3b)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <ArrowDownUp size={15} color="#fff" />
+            <button onClick={flipPair}
+              style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#10b981,#064e3b)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(16,185,129,0.35)" }}>
+              <span key={flipKey} className="flip-inline">
+                <ArrowDownUp size={15} color="#fff" />
+              </span>
             </button>
           </div>
 
@@ -410,7 +525,7 @@ export default function PoolsPage() {
             </div>
             <div className="flex items-center gap-3">
               {/* Display-only quoted output */}
-              <div style={{ flex: 1, fontSize: 28, fontWeight: 900, color: quoteFormatted ? "#fff" : "rgba(255,255,255,0.2)", fontFamily: "inherit", minHeight: 40, display: "flex", alignItems: "center" }}>
+              <div key={`${quoteFormatted ?? "empty"}-${quoteFetching}`} className="quote-pop" style={{ flex: 1, fontSize: 28, fontWeight: 900, color: quoteFormatted ? "#fff" : "rgba(255,255,255,0.2)", fontFamily: "inherit", minHeight: 40, display: "flex", alignItems: "center" }}>
                 {quoteFetching ? (
                   <span style={{ fontSize: 16, color: "#f59e0b" }}>calculating...</span>
                 ) : quoteFormatted ? (
@@ -426,11 +541,36 @@ export default function PoolsPage() {
             </div>
           </div>
 
-          {/* Quote details row */}
-          {quoteFormatted && !quoteFetching && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", marginBottom: 8, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-              <span>Rate: 1 {swapIn} ≈ {(parseFloat(quoteFormatted) / parseFloat(swapAmt)).toFixed(4)} {swapOut}</span>
-              <span style={{ color: "#22C55E" }}>Slippage guard: 0.5%</span>
+          {/* Smart swap breakdown */}
+          {quoteFormatted && !quoteFetching && swapInNum > 0 && (
+            <div className="rounded-xl bg-black/20 border border-white/5 px-3 py-2.5 mb-3" style={{ fontSize: 11 }}>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-white/40">Rate</span>
+                <span className="font-bold text-white">1 {swapIn} ≈ {(swapOutNum / swapInNum).toFixed(6)} {swapOut}</span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-white/40">Inverse</span>
+                <span className="font-bold text-white/80">1 {swapOut} ≈ {(swapInNum / swapOutNum).toFixed(6)} {swapIn}</span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-white/40">AMM fee (0.3%)</span>
+                <span className="font-bold text-white/80">{feeEst.toFixed(6)} {swapOut}</span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-white/40">Price impact</span>
+                <span className="font-bold" style={{ color: impactColor }}>
+                  {priceImpact > 1.5 ? "⚠ high" : priceImpact > 0.5 ? "!" : ""} {priceImpact.toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Min received</span>
+                <span className="font-bold text-[#34d399]">{minOut} {swapOut} <span className="text-white/30">(0.5% slip)</span></span>
+              </div>
+              {priceImpact > 1.5 && swapOutNum > 0 && (
+                <div className="mt-2 rounded-lg bg-red-500/10 border border-red-500/25 px-2.5 py-1.5 text-red-300 font-semibold">
+                  Large order for this pool depth — consider splitting to reduce slippage.
+                </div>
+              )}
             </div>
           )}
 
@@ -449,6 +589,7 @@ export default function PoolsPage() {
             color: "#fff",
             cursor: busy || !swapAmt || !AMM_ADDR || !quoteFormatted || !routingPool ? "not-allowed" : "pointer",
             opacity: busy || !swapAmt ? 0.6 : 1,
+            boxShadow: !busy && swapAmt && AMM_ADDR && quoteFormatted && routingPool ? "0 6px 24px rgba(16,185,129,0.35)" : "none",
           }}>
             {busy ? "Signing..."
               : !AMM_ADDR ? "Deploy AMM first"
@@ -457,6 +598,11 @@ export default function PoolsPage() {
               : quoteFetching ? "Fetching quote..."
               : `Swap ${swapAmt} ${swapIn} -> ${quoteFormatted} ${swapOut}`}
           </button>
+          {!isConnected && (
+            <button onClick={() => setShowModal(true)} className="mt-2 w-full py-2.5 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-white/60 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5">
+              <Wallet size={13} /> Connect wallet to swap
+            </button>
+          )}
         </div>
       )}
 
@@ -478,7 +624,7 @@ export default function PoolsPage() {
           <div className="flex gap-2 bg-black/20 p-1 rounded-xl mb-4">
             {(["add","remove"] as const).map(m => (
               <button key={m} onClick={() => setLiqMode(m)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${liqMode === m ? "bg-[#34d399] text-[#1B4332]" : "text-white/50"}`}>
+                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${liqMode === m ? "bg-[#34d399] text-[#1B4332] shadow-lg shadow-[#34d399]/25" : "text-white/50"}`}>
                 {m === "add" ? "Add Liquidity" : "Remove Liquidity"}
               </button>
             ))}
@@ -493,9 +639,18 @@ export default function PoolsPage() {
                   : SWAP_TOKENS.find(s => tokenAddr(s) === pool?.tokenB) ?? liqPool.split("/")[1];
                 const val  = side === "A" ? liqAmtA : liqAmtB;
                 const set  = side === "A" ? setLiqAmtA : setLiqAmtB;
+                const info = poolInfo.find(pi => pi.pair === liqPool);
+                const poolBal = info
+                  ? parseFloat(formatUnits(side === "A" ? info.reserveA : info.reserveB, tokenDec(sym)))
+                  : 0;
                 return (
-                  <div key={side} style={{ background: "rgba(0,0,0,0.25)", borderRadius: 12, padding: "10px 14px", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 8 }}>
-                    <span className="text-xs font-bold text-white/40 block mb-1">{sym}</span>
+                  <div key={side} style={{ background: "rgba(0,0,0,0.25)", borderRadius: 12, padding: "8px 14px 10px", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 8 }}>
+                    <div className="flex justify-between items-center mb-0.5">
+                      <span className="text-xs font-bold text-white/40">{sym}</span>
+                      <button onClick={() => set(poolBal ? String(poolBal) : "")} className="text-[10px] font-bold text-[#34d399] bg-transparent border-0 cursor-pointer hover:underline">
+                        DEPTH {poolBal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </button>
+                    </div>
                     <input type="number" value={val} onChange={e => set(e.target.value)} placeholder="0.00"
                       style={{ background: "transparent", border: "none", outline: "none", fontSize: 20, fontWeight: 800, color: "#fff", width: "100%", fontFamily: "inherit" }} />
                   </div>
@@ -505,6 +660,7 @@ export default function PoolsPage() {
                 width: "100%", padding: 12, borderRadius: 12, border: "none", fontWeight: 800, fontSize: 14,
                 background: busy || !liqAmtA || !liqAmtB ? "rgba(255,255,255,0.08)" : "linear-gradient(135deg,#34d399,#059669)",
                 color: "#1B4332", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1,
+                boxShadow: !busy && liqAmtA && liqAmtB ? "0 6px 24px rgba(52,211,153,0.3)" : "none",
               }}>
                 {busy ? "Signing..." : "Add Liquidity"}
               </button>
@@ -531,6 +687,7 @@ export default function PoolsPage() {
                       width: "100%", padding: 12, borderRadius: 12, border: "none", fontWeight: 800, fontSize: 14,
                       background: busy || !lpAmt ? "rgba(255,255,255,0.08)" : "linear-gradient(135deg,#F97316,#ea580c)",
                       color: "#fff", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1,
+                      boxShadow: !busy && lpAmt ? "0 6px 24px rgba(249,115,22,0.3)" : "none",
                     }}>
                       {busy ? "Signing..." : "Remove Liquidity"}
                     </button>
@@ -547,12 +704,16 @@ export default function PoolsPage() {
         <div className="flex flex-col gap-3">
           {POOLS.map(p => {
             const info = poolInfo.find(pi => pi.pair === p.pair);
+            const meta = PAIR_TO_TOKEN[p.pair];
             const symA = SWAP_TOKENS.find(s => tokenAddr(s) === p.tokenA) ?? p.pair.split("/")[0];
             const symB = SWAP_TOKENS.find(s => tokenAddr(s) === p.tokenB) ?? p.pair.split("/")[1];
             const rA   = info?.reserveA ?? 0n;
             const rB   = info?.reserveB ?? 0n;
             const lp   = info?.totalSupply ?? 0n;
             const myLp = info?.lpBal ?? 0n;
+            const share = lp > 0n ? (Number(myLp) / Number(lp)) * 100 : 0;
+            const dailyYield = meta && lp > 0n ? (Number(myLp) / Number(lp)) * (meta.apy / 100) * meta.tvl / 365 : 0;
+            const myLpFmt = parseFloat(formatUnits(myLp, 18));
             return (
               <div key={p.pair} className="glass rounded-2xl" style={{ padding: "14px 16px", border: "1px solid rgba(255,255,255,0.08)" }}>
                 <div className="flex justify-between items-center mb-3">
@@ -569,9 +730,18 @@ export default function PoolsPage() {
                     { label: `Reserve ${symA}`, val: parseFloat(formatUnits(rA, tokenDec(symA))).toLocaleString(undefined, { maximumFractionDigits: 4 }), color: tokenColor(symA) },
                     { label: `Reserve ${symB}`, val: parseFloat(formatUnits(rB, tokenDec(symB))).toLocaleString(undefined, { maximumFractionDigits: 4 }), color: tokenColor(symB) },
                     { label: "LP Supply",        val: parseFloat(formatUnits(lp, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 }), color: "#A78BFA" },
-                    { label: "My LP",            val: parseFloat(formatUnits(myLp, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 }), color: "#22C55E" },
+                    { label: "My LP",            val: myLpFmt.toLocaleString(undefined, { maximumFractionDigits: 4 }), color: "#22C55E" },
                   ].map(s => (
                     <div key={s.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "8px 10px" }}>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", margin: "0 0 3px", fontWeight: 700, letterSpacing: 0.5 }}>{s.label.toUpperCase()}</p>
+                      <p style={{ fontSize: 13, fontWeight: 800, color: s.color, margin: 0 }}>{s.val}</p>
+                    </div>
+                  ))}
+                  {[
+                    { label: "Your Share", val: `${share.toFixed(3)}%`, color: "#D8B4FE" },
+                    { label: "Est. Daily Yield", val: dailyYield > 0 ? `$${dailyYield.toFixed(2)}` : "-", color: "#34d399" },
+                  ].map(s => (
+                    <div key={s.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "8px 10px", border: "1px solid rgba(16,185,129,0.12)" }}>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", margin: "0 0 3px", fontWeight: 700, letterSpacing: 0.5 }}>{s.label.toUpperCase()}</p>
                       <p style={{ fontSize: 13, fontWeight: 800, color: s.color, margin: 0 }}>{s.val}</p>
                     </div>

@@ -892,3 +892,20 @@ body {
 .mine-btn-quiet:hover {
   border-color: rgba(255,255,255,0.28);
 }
+
+/* ═══ POOLS — micro-interactions ═══════════════════════════════ */
+@keyframes quote-pop {
+  0%   { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0);   opacity: 1; }
+}
+.quote-pop {
+  animation: quote-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes flip-in {
+  0%   { transform: rotate(180deg) scale(0.6); opacity: 0; }
+  100% { transform: rotate(0deg)   scale(1);   opacity: 1; }
+}
+.flip-inline {
+  display: inline-flex;
+  animation: flip-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
