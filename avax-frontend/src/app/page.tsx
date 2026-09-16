@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -76,6 +76,8 @@ const ESTIMATED_USD_RATES: Record<string, number> = {
 
 export default function Home() {
   const { address, isConnected } = useAccount();
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const connected = mounted && isConnected;
   const { data: avaxBal, refetch: refetchAvax } = useBalance({ address });
   const { connectWallet, disconnectWallet, setAvaxBalance, setAllBalances } = useKaivaxStore();
   const openAIChat = useAIChatStore(s => s.open);
@@ -152,7 +154,7 @@ export default function Home() {
     + (tokenBals.cents??0)*ESTIMATED_USD_RATES.cents;
   const activeTokenCount = allTokens.filter(b => b.value > 0).length;
   const balancesLoading = isConnected && tokenData === undefined;
-  const displayName = profile?.displayName || profile?.name || (address ? `${address.slice(0,6)}…${address.slice(-4)}` : '');
+  const displayName = mounted ? (profile?.displayName || profile?.name || (address ? `${address.slice(0,6)}…${address.slice(-4)}` : '')) : '';
 
   const askAgent = async () => {
     if (!agentQ.trim() || agentBusy) return;
@@ -208,8 +210,8 @@ export default function Home() {
               fontSize:15, fontWeight:800, color:'#04140f',
             }}>
             <Link2 size={16}/>
-            {isConnected ? `Connected: ${address?.slice(0,6)}…${address?.slice(-4)}` : 'Connect Wallet'}
-            {isConnected && <span style={{ width:8, height:8, borderRadius:'50%', background:'#04140f' }} />}
+            {connected ? `Connected: ${address?.slice(0,6)}…${address?.slice(-4)}` : 'Connect Wallet'}
+            {connected && <span style={{ width:8, height:8, borderRadius:'50%', background:'#04140f' }} />}
           </motion.button>
 
           <p style={{ marginTop:16, fontSize:12, color:'var(--home-muted)' }}>
@@ -235,14 +237,14 @@ export default function Home() {
                 </div>
                 <div>
                   <p style={{ fontSize:17, fontWeight:800, margin:0, color:'#fff' }}>
-                    {isConnected ? (displayName || 'KAI Member') : 'Not connected'}
+                    {connected ? (displayName || 'KAI Member') : 'Not connected'}
                   </p>
                   <p style={{ fontSize:14, color:'rgba(232,242,238,0.75)', margin:'2px 0 0', lineHeight:1.5 }}>
-                    {isConnected
+                    {connected
                       ? "You're an active KAI Nuvari member on Avalanche Fuji, based in Kenya."
                       : 'Connect a wallet to see your profile.'}
                   </p>
-                  {isConnected && !profile && (
+                  {connected && !profile && (
                     <Link href="/profile" className="text-link" style={{ fontSize:12 }}>Complete your profile →</Link>
                   )}
                 </div>
@@ -250,10 +252,10 @@ export default function Home() {
 
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, paddingTop:16, borderTop: sectionDivider }}>
                 {[
-                  { l:'Est. value', v: isConnected ? (balancesLoading ? '…' : `$${totalUsd.toFixed(2)}`) : '$0.00', color:'#34d399', icon:Wallet },
+                  { l:'Est. value', v: connected ? (balancesLoading ? '…' : `$${totalUsd.toFixed(2)}`) : '$0.00', color:'#34d399', icon:Wallet },
                   { l:'Network',   v:'Fuji',   color:null,      icon:Mountain },
-                  { l:'Tokens',    v:isConnected ? (balancesLoading ? '…' : String(activeTokenCount)) : '0', color:null, icon:Coins },
-                  { l:'Status',    v:isConnected ? 'Active' : 'Idle', color:isConnected ? '#34d399' : null, icon:Zap },
+                  { l:'Tokens',    v:connected ? (balancesLoading ? '…' : String(activeTokenCount)) : '0', color:null, icon:Coins },
+                  { l:'Status',    v:connected ? 'Active' : 'Idle', color:connected ? '#34d399' : null, icon:Zap },
                 ].map(s => (
                   <div key={s.l} style={{ textAlign:'center' }}>
                     <s.icon size={16} color={s.color ?? 'var(--home-muted)'} strokeWidth={1.8} style={{ display:'block', margin:'0 auto 6px' }}/>
@@ -327,14 +329,14 @@ export default function Home() {
                 <p style={{ fontSize:14, color:'var(--home-muted)', marginBottom:16 }}>Loading…</p>
               ) : (
                 <div style={{ display:'flex', alignItems:'baseline', gap:12, marginBottom:20 }}>
-                  <span style={{ fontSize:48, fontWeight:900, letterSpacing:-2, color:isConnected?'#fff':'rgba(255,255,255,0.25)', lineHeight:1 }}>
-                    ${isConnected ? totalUsd.toFixed(2) : '0.00'}
+                  <span style={{ fontSize:48, fontWeight:900, letterSpacing:-2, color:connected?'#fff':'rgba(255,255,255,0.25)', lineHeight:1 }}>
+                    ${connected ? totalUsd.toFixed(2) : '0.00'}
                   </span>
-                  {isConnected && totalUsd>0 && <span style={{ fontSize:13, ...HL.green }}>+0.00%</span>}
+                  {connected && totalUsd>0 && <span style={{ fontSize:13, ...HL.green }}>+0.00%</span>}
                 </div>
               )}
 
-              {isConnected ? (
+              {connected ? (
                 <>
                   <div style={{ overflowX:'auto', scrollbarWidth:'none', marginBottom:18 }}>
                     <div style={{ display:'flex', gap:24, minWidth:'max-content' }}>

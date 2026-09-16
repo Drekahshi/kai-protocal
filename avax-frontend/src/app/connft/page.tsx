@@ -10,7 +10,7 @@
  * Treasury:     0xB13727161583e38185530755a1A96D00fcCae870
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Leaf, ShoppingCart, ExternalLink, RefreshCw, Phone } from 'lucide-react';
 import { useAccount, useSwitchChain, useWriteContract, useReadContract, usePublicClient } from 'wagmi';
@@ -103,6 +103,7 @@ const FILTERS = ['All', 'Under 100', '100-300', 'Rare 300+'];
 
 export default function CoNNFTMarketplace() {
   const { isConnected, address }  = useAccount();
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const { switchChainAsync }      = useSwitchChain();
   const { writeContractAsync }    = useWriteContract();
   const publicClient              = usePublicClient();
@@ -304,7 +305,7 @@ export default function CoNNFTMarketplace() {
         <div style={{ flex: 1 }}>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', margin: 0 }}>Payment: yBOB Stable Token</p>
           <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
-            {yBobBal !== null ? `Your balance: ${yBobBal.toFixed(4)} yBOB` : isConnected ? 'Loading balance...' : 'Connect wallet to see balance'}
+            {mounted && yBobBal !== null ? `Your balance: ${yBobBal.toFixed(4)} yBOB` : mounted && isConnected ? 'Loading balance...' : 'Connect wallet to see balance'}
           </p>
         </div>
         <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: 'rgba(96,165,250,0.15)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>
@@ -357,7 +358,7 @@ export default function CoNNFTMarketplace() {
 
       {/* Wallet status */}
       <div style={{ margin: '12px 16px 0' }}>
-        {isConnected ? (
+        {mounted && isConnected ? (
           <div className="glass" style={{ padding: '10px 14px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(34,197,94,0.3)' }}>
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Connected</span>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#22C55E', fontFamily: 'monospace' }}>{address?.slice(0, 8)}...{address?.slice(-6)}</span>
@@ -471,7 +472,7 @@ export default function CoNNFTMarketplace() {
               </div>
 
               {/* Show insufficient balance warning per card */}
-              {isConnected && yBobBal !== null && yBobBal < nft.price && !purchased.includes(nft.id) && (
+              {mounted && isConnected && yBobBal !== null && yBobBal < nft.price && !purchased.includes(nft.id) && (
                 <p style={{ fontSize: 9, color: '#f87171', margin: 0, textAlign: 'right' }}>Need {nft.price - Math.floor(yBobBal)} more yBOB</p>
               )}
             </div>
