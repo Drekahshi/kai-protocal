@@ -48,6 +48,8 @@ export default function VoiceAgentPage() {
 
   const endRef = useRef<HTMLDivElement>(null);
   const recRef = useRef<{ recognize: () => void; abort: () => void } | null>(null);
+  const interimRef = useRef('');
+  const listeningRef = useRef(false);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -109,17 +111,42 @@ export default function VoiceAgentPage() {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         transcript += e.results[i][0].transcript;
       }
+      interimRef.current = transcript;
       setInterim(transcript);
     };
-    rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onend = () => {
+      listeningRef.current = false;
+      setListening(false);
+    };
+    rec.onerror = (ev: any) => {
+      listeningRef.current = false;
+      setListening(false);
+      const code = ev?.error;
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        setStkStatus('Microphone permission denied — allow mic access in your browser and tap the mic again.');
+      } else if (code === 'no-speech' || code === 'aborted') {
+        setInterim('');
+        interimRef.current = '';
+      }
+    };
     recRef.current = {
       recognize: () => {
+        if (listeningRef.current) return;
+        interimRef.current = '';
         setInterim('');
+        listeningRef.current = true;
         setListening(true);
-        rec.start();
+        try {
+          rec.start();
+        } catch {
+          listeningRef.current = false;
+          setListening(false);
+          setStkStatus('Could not start the microphone. Check browser permission and try again.');
+        }
       },
       abort: () => {
+        if (!listeningRef.current) return;
+        listeningRef.current = false;
         rec.stop();
         setListening(false);
       },
@@ -326,9 +353,10 @@ export default function VoiceAgentPage() {
   };
 
   const toggleMic = () => {
-    if (listening) {
+    if (listening || listeningRef.current) {
       recRef.current?.abort();
-      if (interim.trim()) send(interim);
+      const said = interimRef.current.trim() || interim.trim();
+      if (said) send(said);
     } else {
       recRef.current?.recognize();
     }
