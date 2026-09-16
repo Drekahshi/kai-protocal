@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import BottomNav from '@/components/shared/BottomNav';
 const AIChatOverlay = dynamic(() => import('@/components/ai/AIChatOverlay'), { ssr: false });
 
-const FULLSCREEN_ROUTES = ['/nuvari', '/ai', '/chat'];
+const FULLSCREEN_ROUTES = ['/nuvari', '/ai', '/chat', '/voice'];
 /* Exact matches only — '/kai' would otherwise prefix-match '/kai-bar' */
 const FULLSCREEN_EXACT_ROUTES = ['/kai'];
 
