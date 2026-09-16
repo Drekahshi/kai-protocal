@@ -22,7 +22,7 @@ import {
   useReadContract, usePublicClient,
 } from "wagmi";
 import { avalancheFuji } from "wagmi/chains";
-import { parseUnits, formatUnits, maxUint256 } from "viem";
+import { parseUnits, formatUnits } from "viem";
 import {
   ArrowLeft, QrCode, Scan, Send, Copy, CheckCircle,
   ExternalLink, RefreshCw, CreditCard, X, ChevronDown,
@@ -60,18 +60,37 @@ function parseQRPayload(raw: string): ParsedPayment | null {
   }
 
   // EIP-681: ethereum:<address>[@chainId][/function]?params
+  // For /transfer the ethereum: target is the TOKEN CONTRACT and the
+  // address= param is the recipient; for plain payments the target is the
+  // recipient (native value via ?value=).
   const eip681 = raw.match(
     /^ethereum:(0x[0-9a-fA-F]{40})(@(\d+))?(\/([a-zA-Z0-9_]+))?\??(.*)$/i,
   );
   if (eip681) {
-    const [, address, , chainId, , , params] = eip681;
+    const [, target, , chainId, , method, params] = eip681;
     const search = new URLSearchParams(params ?? "");
-    const value  = search.get("value") || search.get("amount") || undefined;
-    const token  = search.get("address") || undefined;
+
+    if (method === "transfer") {
+      const recipient = search.get("address");
+      const uint256   = search.get("uint256");
+      if (!recipient || !uint256) return null;
+      let amount: string | undefined;
+      try { amount = formatUnits(BigInt(uint256), 18); } catch { /* bad */ }
+      return {
+        address:      recipient as `0x${string}`,
+        tokenAddress: target as `0x${string}`,
+        amount,
+        chainId:      chainId ? parseInt(chainId) : undefined,
+        raw,
+      };
+    }
+
+    const value = search.get("value") || search.get("amount");
+    let amount: string | undefined;
+    if (value) { try { amount = formatUnits(BigInt(value), 18); } catch { /* bad */ } }
     return {
-      address:      address as `0x${string}`,
-      tokenAddress: token as `0x${string}` | undefined,
-      amount:       value ? formatUnits(BigInt(value), 18) : undefined,
+      address:      target as `0x${string}`,
+      amount,
       chainId:      chainId ? parseInt(chainId) : undefined,
       raw,
     };
@@ -88,13 +107,14 @@ function buildReceiveURI(
   chainId: number,
 ): string {
   if (!address) return "";
-  let uri = `ethereum:${address}@${chainId}`;
   if (tokenAddress && amount) {
-    uri += `/transfer?address=${address}&uint256=${parseUnits(amount, 18).toString()}`;
-  } else if (amount) {
-    uri += `?value=${parseUnits(amount, 18).toString()}`;
+    // EIP-681 token transfer: target = token contract, address = recipient.
+    return `ethereum:${tokenAddress}@${chainId}/transfer?address=${address}&uint256=${parseUnits(amount, 18).toString()}`;
   }
-  return uri;
+  if (amount) {
+    return `ethereum:${address}@${chainId}?value=${parseUnits(amount, 18).toString()}`;
+  }
+  return `ethereum:${address}@${chainId}`;
 }
 
 // ─── QR Scanner component (lazy-loads html5-qrcode) ─────────────────────────
@@ -263,14 +283,6 @@ export default function PayPage() {
     setBusy(true); setStatusMsg(""); setTxUrl(null);
     try {
       await switchChainAsync({ chainId: avalancheFuji.id });
-      setStatusMsg(`Approving ${token.symbol}...`);
-      const appTx = await writeContractAsync({
-        address: token.address, abi: ERC20_ABI,
-        functionName: "approve", args: [to as `0x${string}`, maxUint256],
-        chainId: avalancheFuji.id,
-      });
-      await publicClient?.waitForTransactionReceipt({ hash: appTx });
-
       setStatusMsg(`Sending ${amount} ${token.symbol} to ${to.slice(0,8)}...`);
       const tx = await writeContractAsync({
         address: token.address, abi: ERC20_ABI,
@@ -381,7 +393,7 @@ export default function PayPage() {
           <ArrowLeft size={18} color="#10b981" />
         </Link>
         <div>
-          <  h1 style={{ fontSize: 22, fontWeight: 900, color: "#fff", margin: 0 }}>Pay & Receive</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 900, color: "#fff", margin: 0 }}>Pay & Receive</h1>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "3px 0 0" }}>
             Scan to pay · Generate QR · Send tokens · Paystack
           </p>
