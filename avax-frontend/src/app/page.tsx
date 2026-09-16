@@ -276,9 +276,13 @@ export default function Home() {
                   <span style={HL.green}>KAI</span> Intelligence
                 </p>
               </div>
-              <p style={{ fontSize:14, color:'rgba(232,242,238,0.75)', margin:'0 0 14px', lineHeight:1.6 }}>
-                Live and ready to help, powered by Qwen3 RAG.{' '}
+              <p style={{ fontSize:14, color:'rgba(232,242,238,0.75)', margin:'0 0 6px', lineHeight:1.6 }}>
+                Live and ready to help, powered by Qwen3 RAG. Best for quick questions.{' '}
                 <button onClick={openAIChat} className="text-link" style={{ background:'none', border:'none', cursor:'pointer', padding:0, font:'inherit', fontSize:'inherit' }}>Open the full chat →</button>
+              </p>
+              <p style={{ fontSize:13, color:'rgba(232,242,238,0.55)', margin:'0 0 14px', lineHeight:1.6 }}>
+                Need to check balances or make a swap by talking? Try the{' '}
+                <Link href="/voice" className="text-link">Voice Agent →</Link>
               </p>
 
               <p style={label}>Quick ask</p>
