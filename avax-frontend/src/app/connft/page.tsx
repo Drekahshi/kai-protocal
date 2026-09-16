@@ -10,9 +10,9 @@
  * Treasury:     0xB13727161583e38185530755a1A96D00fcCae870
  */
 
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Leaf, ShoppingCart, ExternalLink, RefreshCw, Mail } from 'lucide-react';
+import { ArrowLeft, Leaf, ShoppingCart, ExternalLink, RefreshCw, Mail, Check, Loader2, CreditCard } from 'lucide-react';
 import { useAccount, useSwitchChain, useWriteContract, useReadContract, usePublicClient } from 'wagmi';
 import { avalancheFuji } from 'wagmi/chains';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
@@ -26,17 +26,19 @@ const TREASURY = (TREASURY_ADDR ?? '0xB13727161583e38185530755a1A96D00fcCae870')
 const YBOB_TOKEN = ECOSYSTEM_TOKENS.find(t => t.symbol === 'yBOB');
 const YBOB_ADDR  = YBOB_TOKEN?.address as `0x${string}` | undefined;
 const YBOB_DEC   = YBOB_TOKEN?.decimals ?? 18;
+const ACCENT = '#10b981';
+const LINE = 'rgba(255,255,255,0.08)';
+const SURFACE = 'rgba(255,255,255,0.03)';
+const MUTED = 'rgba(255,255,255,0.50)';
+const DIM = 'rgba(255,255,255,0.35)';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ─── NFT data ─────────────────────────────────────────────────────────────────
 const conservationData = {
-  contractAddress: '0x0000000000000000000000000000000000000000',
-  explorerUrl: 'https://testnet.snowtrace.io',
   totalMinted: 105,
   nfts: Array.from({ length: 105 }, (_, i) => ({
     key: `nft${i + 1}`,
     serial: i + 1,
-    explorerUrl: 'https://testnet.snowtrace.io',
-    cid: '',
   })),
 };
 
@@ -82,7 +84,7 @@ const METADATA_MAP: Record<string, { name: string; price: number; desc: string }
   nft104:{ name: 'Tiger Prowl',        price: 510, desc: 'A Royal Bengal tiger prowling through dense bamboo.' },
 };
 
-const NFTS = conservationData.nfts.map((nft: { key: string; serial: number; explorerUrl: string; cid: string }) => {
+const NFTS = conservationData.nfts.map((nft: { key: string; serial: number }) => {
   const meta = METADATA_MAP[nft.key] || {
     name: `Conservation NFT #${nft.serial}`,
     price: 150,
@@ -95,7 +97,6 @@ const NFTS = conservationData.nfts.map((nft: { key: string; serial: number; expl
     price: meta.price,        // price in yBOB (1 yBOB ≈ $1)
     img: `/nfts/${nft.key}.jpeg`,
     desc: meta.desc,
-    explorerUrl: nft.explorerUrl,
   };
 });
 
@@ -104,6 +105,7 @@ const FILTERS = ['All', 'Under 100', '100-300', 'Rare 300+'];
 export default function CoNNFTMarketplace() {
   const { isConnected, address }  = useAccount();
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const connected = mounted && isConnected;
   const { switchChainAsync }      = useSwitchChain();
   const { writeContractAsync }    = useWriteContract();
   const publicClient              = usePublicClient();
@@ -114,13 +116,13 @@ export default function CoNNFTMarketplace() {
   const [isLoading,    setIsLoading]   = useState<string | null>(null);
   const [purchased,    setPurchased]   = useState<string[]>([]);
   const [activeFilter, setActiveFilter]= useState('All');
-  const [cart,         setCart]        = useState<string[]>([]);
-  const [refreshKey,   setRefreshKey]  = useState(0);
+  const [cart]                         = useState<string[]>([]);
 
   // ── Paystack state ──────────────────────────────────────────────────────
-  const [payEmail,      setPayEmail]     = useState('');
-  const [payBusy,       setPayBusy]      = useState(false);
-  const [payNft,        setPayNft]       = useState<typeof NFTS[0] | null>(null);
+  const [payEmail, setPayEmail] = useState('');
+  const [payBusy,  setPayBusy]  = useState(false);
+  const [payNft,   setPayNft]   = useState<typeof NFTS[0] | null>(null);
+  const emailValid = EMAIL_RE.test(payEmail);
 
   // ── Live yBOB balance ─────────────────────────────────────────────────────
   const { data: yBobBalRaw, refetch: refetchBal } = useReadContract(
@@ -195,7 +197,7 @@ export default function CoNNFTMarketplace() {
 
   // ── Paystack buy handler ──────────────────────────────────────────────────
   const handlePaystackBuy = async (nft: typeof NFTS[0]) => {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail)) {
+    if (!emailValid) {
       setStatusMsg('Enter a valid email to pay with Paystack.');
       return;
     }
@@ -262,138 +264,114 @@ export default function CoNNFTMarketplace() {
   });
 
   return (
-    <main style={{ paddingBottom: 80 }}>
+    <main style={{ maxWidth: 1120, margin: '0 auto', padding: '0 16px 80px' }}>
 
       {/* Header */}
-      <div style={{ padding: '20px 16px 0', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <Link href="/" style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-          <ArrowLeft color="#10b981" size={20} />
+      <div style={{ paddingTop: 24, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Link href="/" style={{ color: DIM, display: 'flex', alignItems: 'center' }}>
+          <ArrowLeft size={20} />
         </Link>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0, color: '#10b981' }}>NFT Mkt Exchange</h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', margin: 0 }}>
-            Conservation NFTs · Pay with yBOB · Avalanche Fuji
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: '#fff' }}>Conservation NFTs</h1>
+          <p style={{ fontSize: 13, color: MUTED, margin: '2px 0 0' }}>
+            Buy real conservation artwork with yBOB or Paystack on Avalanche Fuji.
           </p>
         </div>
-        <button onClick={() => refetchBal()} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 8, cursor: 'pointer' }}>
-          <RefreshCw size={15} color="#10b981" />
+        <button onClick={() => refetchBal()} title="Refresh balance" style={{ background: 'transparent', border: `1px solid ${LINE}`, borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <RefreshCw size={15} color={MUTED} />
         </button>
         {cart.length > 0 && (
           <div style={{ position: 'relative' }}>
-            <ShoppingCart size={22} color="#10b981" />
-            <span style={{ position: 'absolute', top: -6, right: -6, background: '#10b981', color: '#fff', fontSize: 9, fontWeight: 900, width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cart.length}</span>
+            <ShoppingCart size={20} color={ACCENT} />
+            <span style={{ position: 'absolute', top: -6, right: -6, background: ACCENT, color: '#04140f', fontSize: 9, fontWeight: 900, width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cart.length}</span>
           </div>
         )}
       </div>
 
-      {/* yBOB not deployed warning */}
       {!YBOB_ADDR && (
-        <div style={{ margin: '12px 16px 0', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 12, padding: '10px 14px', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
-          <strong style={{ color: '#F97316' }}>yBOB not deployed.</strong> Run <code style={{ color: '#fbbf24' }}>deploy.ts --network fuji</code> first.
-        </div>
+        <p style={{ marginTop: 16, fontSize: 12, color: '#fbbf24' }}>
+          yBOB not deployed — run <code>deploy.ts --network fuji</code> first.
+        </p>
       )}
 
-      {/* Payment method badge */}
-      <div style={{ margin: '12px 16px 0', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.25)' }}>
-        <span style={{ fontSize: 18 }}></span>
-        <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', margin: 0 }}>Payment: yBOB Stable Token</p>
-          <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
-            {mounted && yBobBal !== null ? `Your balance: ${yBobBal.toFixed(4)} yBOB` : mounted && isConnected ? 'Loading balance...' : 'Connect wallet to see balance'}
-          </p>
-        </div>
-        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: 'rgba(96,165,250,0.15)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>
-          1 yBOB ≈ $1
-        </span>
-      </div>
-
-      {/* Contract Address */}
-      <div style={{ margin: '10px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-        <div>
-          <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', margin: '0 0 1px', fontWeight: 700 }}>COLLECTION CONTRACT</p>
-          <p style={{ fontSize: 12, color: '#fff', fontWeight: 700, fontFamily: 'monospace', margin: 0 }}>{conservationData.contractAddress}</p>
-        </div>
-        <a href={conservationData.explorerUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#10b981', fontWeight: 800, textDecoration: 'none' }}>
-          Snowtrace <ExternalLink size={12} />
-        </a>
-      </div>
-
-      {/* Stats */}
-      <div style={{ margin: '10px 16px 0', padding: '12px 16px', borderRadius: 14, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', display: 'flex', gap: 20 }}>
-        {[
-          { label: 'Total Minted', value: `${conservationData.totalMinted}` },
-          { label: 'Listed',       value: `${NFTS.length}` },
-          { label: 'Purchased',    value: `${purchased.length}` },
-        ].map(s => (
-          <div key={s.label} style={{ flex: 1 }}>
-            <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', margin: '0 0 2px', fontWeight: 700 }}>{s.label}</p>
-            <p style={{ fontSize: 16, fontWeight: 900, color: '#10b981', margin: 0 }}>{s.value}</p>
+      {/* Account panel — connection, balance, and stats in one place */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${LINE}` }}>
+        {connected ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: 0, fontFamily: 'monospace' }}>
+                {address?.slice(0, 6)}…{address?.slice(-4)}
+              </p>
+              <p style={{ fontSize: 12, color: MUTED, margin: '2px 0 0' }}>
+                {yBobBal !== null ? `${yBobBal.toFixed(2)} yBOB available` : 'Loading balance…'}
+              </p>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: ACCENT }}>● Connected</span>
           </div>
-        ))}
+        ) : (
+          <button onClick={() => setShowModal(true)} style={{
+            width: '100%', padding: '12px', borderRadius: 10, textAlign: 'center', marginBottom: 14,
+            border: 'none', cursor: 'pointer', background: ACCENT, color: '#04140f', fontSize: 14, fontWeight: 700,
+          }}>
+            Connect wallet to buy with yBOB
+          </button>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+          {[
+            { label: 'Listed',    value: `${NFTS.length}` },
+            { label: 'Purchased', value: `${purchased.length}` },
+            { label: 'yBOB rate', value: '≈ $1.00' },
+          ].map(s => (
+            <div key={s.label} style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: 16, fontWeight: 800, color: '#fff', margin: '0 0 2px' }}>{s.value}</p>
+              <p style={{ fontSize: 10.5, color: MUTED, margin: 0 }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Status */}
       {statusMsg && (
         <div style={{
-          margin: '12px 16px 0',
-          background: 'rgba(34,197,94,0.1)',
-          border: '1px solid rgba(34,197,94,0.3)',
-          padding: '10px 14px', borderRadius: 12, fontSize: 12, color: '#fff', textAlign: 'center',
-          position: 'sticky', top: 16, zIndex: 10,
+          marginTop: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, color: '#fff',
+          background: SURFACE, border: `1px solid ${LINE}`,
+          position: 'sticky', top: 12, zIndex: 10,
         }}>
           {statusMsg}
           {txUrl && (
-            <a href={txUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, color: '#60a5fa', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-              Snowtrace <ExternalLink size={11} />
+            <a href={txUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, color: ACCENT, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}>
+              View on Snowtrace <ExternalLink size={11} />
             </a>
           )}
         </div>
       )}
 
-      {/* Wallet status */}
-      <div style={{ margin: '12px 16px 0' }}>
-        {mounted && isConnected ? (
-          <div className="glass" style={{ padding: '10px 14px', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(34,197,94,0.3)' }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Connected</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#22C55E', fontFamily: 'monospace' }}>{address?.slice(0, 8)}...{address?.slice(-6)}</span>
-          </div>
-        ) : (
-          <button onClick={() => setShowModal(true)} className="glass" style={{ width: '100%', padding: '12px', borderRadius: 12, textAlign: 'center', border: '1px dashed rgba(16,185,129,0.35)', background: 'rgba(16,185,129,0.05)', color: '#10b981', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            Connect Wallet to buy NFTs with yBOB
-          </button>
-        )}
-      </div>
-
       {/* Paystack email input */}
-      <div style={{ margin: '10px 16px 0', padding: '12px 14px', borderRadius: 12, background: 'rgba(0,184,122,0.06)', border: '1px solid rgba(0,184,122,0.2)' }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: '#00B87A', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Mail size={13} /> Pay with Paystack
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${LINE}` }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: '#fff', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Mail size={14} color={ACCENT} /> Prefer card, bank, or M-Pesa via Paystack?
         </p>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="email"
-            placeholder="you@email.com"
-            value={payEmail}
-            onChange={e => setPayEmail(e.target.value)}
-            style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#fff', outline: 'none', fontFamily: 'monospace' }}
-          />
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
-            Enter email<br />for Paystack receipt
-          </div>
-        </div>
-        <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', margin: '5px 0 0' }}>
-          Rate: 1 yBOB ≈ KES 130 · M-Pesa / Card / Bank via Paystack
+        <p style={{ fontSize: 12, color: MUTED, margin: '0 0 10px' }}>
+          Enter your email once, then tap "Pay with Paystack" on any NFT below. Rate: 1 yBOB ≈ KES 130.
         </p>
+        <input
+          type="email"
+          placeholder="you@email.com"
+          value={payEmail}
+          onChange={e => setPayEmail(e.target.value)}
+          style={{ width: '100%', maxWidth: 280, background: 'transparent', border: `1px solid ${payEmail && !emailValid ? '#f87171' : LINE}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: '#fff', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+        />
       </div>
 
       {/* Filters */}
-      <div style={{ margin: '12px 16px 0', display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+      <div style={{ marginTop: 20, display: 'flex', gap: 20, overflowX: 'auto', borderBottom: `1px solid ${LINE}` }}>
         {FILTERS.map(f => (
           <button key={f} onClick={() => setActiveFilter(f)}
-            style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 999, border: '1px solid', cursor: 'pointer', fontWeight: 700, fontSize: 11, transition: 'all 0.2s',
-              background: activeFilter === f ? 'linear-gradient(135deg,#10b981,#064e3b)' : 'rgba(255,255,255,0.04)',
-              borderColor: activeFilter === f ? '#10b981' : 'rgba(255,255,255,0.1)',
-              color: activeFilter === f ? '#fff' : 'rgba(255,255,255,0.5)',
+            style={{
+              flexShrink: 0, padding: '8px 0', marginBottom: -1, background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+              border: 'none', borderBottom: activeFilter === f ? `2px solid ${ACCENT}` : '2px solid transparent',
+              color: activeFilter === f ? '#fff' : MUTED, fontSize: 13, fontWeight: 600,
             }}>
             {f}
           </button>
@@ -401,77 +379,90 @@ export default function CoNNFTMarketplace() {
       </div>
 
       {/* NFT Grid */}
-      <div style={{ padding: '16px 16px 0', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
-        {filteredNFTs.map(nft => (
-          <div key={nft.id} className="glass" style={{
-            borderRadius: 18, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-            border: purchased.includes(nft.id)
-              ? '1px solid rgba(34,197,94,0.5)'
-              : cart.includes(nft.id)
-                ? '1px solid rgba(16,185,129,0.4)'
-                : '1px solid rgba(255,255,255,0.08)',
-            transition: 'border-color 0.2s',
-          }}>
-            {/* Image */}
-            <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', background: 'rgba(0,0,0,0.2)' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={nft.img} alt={nft.name} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: purchased.includes(nft.id) ? 0.7 : 1 }} />
-              <a href={nft.explorerUrl} target="_blank" rel="noreferrer" style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', padding: '4px 8px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <Leaf size={11} color="#22C55E" />
-                <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>#{nft.serial}</span>
-                <ExternalLink size={10} color="#fff" style={{ opacity: 0.7 }} />
-              </a>
-              {purchased.includes(nft.id) && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(34,197,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}></div>
-              )}
-              {isLoading === nft.id && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}></div>
-              )}
-            </div>
+      <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 18 }}>
+        {filteredNFTs.map(nft => {
+          const owned = purchased.includes(nft.id);
+          const buying = isLoading === nft.id;
+          const paying = payBusy && payNft?.id === nft.id;
+          const short = yBobBal !== null && yBobBal < nft.price;
 
-            {/* Info */}
-            <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <h3 style={{ fontSize: 12, fontWeight: 800, color: '#fff', margin: 0, lineHeight: 1.2 }}>{nft.name}</h3>
-              <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', margin: 0, lineHeight: 1.3, height: 22, overflow: 'hidden' }}>{nft.desc}</p>
-
-              {/* Price + buy */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 900, color: '#60a5fa' }}>{nft.price}</span>
-                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginLeft: 3, fontWeight: 700 }}>yBOB</span>
-                </div>
-
-                {purchased.includes(nft.id) ? (
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#22C55E', padding: '3px 7px', background: 'rgba(34,197,94,0.1)', borderRadius: 6 }}>Owned</span>
-                ) : (
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {/* yBOB buy */}
-                    <button
-                      onClick={() => handleBuy(nft)}
-                      disabled={isLoading !== null || payBusy}
-                      title="Buy with yBOB token"
-                      style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: isLoading !== null ? 'not-allowed' : 'pointer' }}>
-                      {isLoading === nft.id ? '...' : ''}
-                    </button>
-                    {/* Paystack buy */}
-                    <button
-                      onClick={() => handlePaystackBuy(nft)}
-                      disabled={payBusy || isLoading !== null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail)}
-                      title={payEmail ? 'Buy with Paystack' : 'Enter your email above first'}
-                      style={{ background: 'rgba(0,184,122,0.15)', border: '1px solid rgba(0,184,122,0.35)', color: '#00B87A', padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: (!payEmail || payBusy) ? 'not-allowed' : 'pointer', opacity: !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail) ? 0.4 : 1 }}>
-                      {payBusy && payNft?.id === nft.id ? '...' : 'Paystack'}
-                    </button>
+          return (
+            <div key={nft.id} style={{
+              borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+              border: `1px solid ${owned ? 'rgba(16,185,129,0.4)' : LINE}`,
+              background: SURFACE,
+            }}>
+              {/* Image */}
+              <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', background: 'rgba(0,0,0,0.2)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={nft.img} alt={nft.name} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: owned ? 0.6 : 1 }} />
+                <span style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,0.65)', padding: '3px 8px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Leaf size={11} color={ACCENT} />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#fff' }}>#{nft.serial}</span>
+                </span>
+                {owned && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(6,20,15,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, color: '#04140f', fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 999 }}>
+                      <Check size={14} /> Owned
+                    </span>
+                  </div>
+                )}
+                {(buying || paying) && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Loader2 size={26} color="#fff" style={{ animation: 'spin 1s linear infinite' }} />
                   </div>
                 )}
               </div>
 
-              {/* Show insufficient balance warning per card */}
-              {mounted && isConnected && yBobBal !== null && yBobBal < nft.price && !purchased.includes(nft.id) && (
-                <p style={{ fontSize: 9, color: '#f87171', margin: 0, textAlign: 'right' }}>Need {nft.price - Math.floor(yBobBal)} more yBOB</p>
-              )}
+              {/* Info */}
+              <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#fff', margin: '0 0 3px', lineHeight: 1.25 }}>{nft.name}</h3>
+                  <p style={{ fontSize: 12, color: MUTED, margin: 0, lineHeight: 1.35 }}>{nft.desc}</p>
+                </div>
+
+                <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                  <span style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{nft.price}</span>
+                  <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>yBOB</span>
+                </div>
+
+                {owned ? null : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <button
+                      onClick={() => handleBuy(nft)}
+                      disabled={isLoading !== null || payBusy}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        background: ACCENT, border: 'none', color: '#04140f', padding: '10px 12px', borderRadius: 9,
+                        fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                        cursor: isLoading !== null ? 'not-allowed' : 'pointer',
+                        opacity: isLoading !== null && !buying ? 0.5 : 1,
+                      }}>
+                      {buying ? 'Buying…' : 'Buy with yBOB'}
+                    </button>
+                    <button
+                      onClick={() => handlePaystackBuy(nft)}
+                      disabled={payBusy || isLoading !== null || !emailValid}
+                      title={emailValid ? 'Buy with Paystack' : 'Enter your email above first'}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        background: 'transparent', border: `1px solid ${LINE}`, color: emailValid ? '#fff' : DIM,
+                        padding: '9px 12px', borderRadius: 9, fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                        cursor: (!emailValid || payBusy) ? 'not-allowed' : 'pointer',
+                        opacity: emailValid ? 1 : 0.6,
+                      }}>
+                      <CreditCard size={13} /> {paying ? 'Opening…' : 'Pay with Paystack'}
+                    </button>
+                  </div>
+                )}
+
+                {!owned && short && (
+                  <p style={{ fontSize: 11, color: '#f87171', margin: 0 }}>Need {Math.ceil(nft.price - (yBobBal ?? 0))} more yBOB, or use Paystack above.</p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showModal && <WalletConnectModal onClose={() => setShowModal(false)} />}
