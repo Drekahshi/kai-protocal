@@ -365,7 +365,7 @@ export default function MinePage() {
                     onClick={() => doTask(task.id, task.reward, task.unit)} disabled={done}
                     style={{ textAlign:'left', display:'flex', alignItems:'center', gap:14, padding:'14px 16px', borderRadius:12, cursor:done?'default':'pointer', background:done?'var(--mine-surface-2)':'var(--mine-surface)', border:'1px solid var(--mine-line)', color:'var(--mine-text)', opacity:done?0.72:1, fontFamily:'inherit', transition:'border-color 0.15s' }}>
                     <div style={{ width:34, height:34, borderRadius:10, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background:'var(--mine-surface-2)', color:done?'var(--mine-dim)':'var(--mine-text-2)' }}>
-                      {done ? <CheckCircle size={16} style={{ color:'var(--mine-accent)' }}/> : <TaskIcon id={task.id}/>}
+                      {done ? <CheckCircle size={16} className="celebrate-pop" style={{ color:'var(--mine-accent)' }}/> : <TaskIcon id={task.id}/>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <p style={{ fontSize:13.5, fontWeight:600, color:done?'var(--mine-dim)':'var(--mine-text)', margin:0 }}>{task.title}</p>
@@ -402,7 +402,7 @@ export default function MinePage() {
                 ) : (
                   <motion.div key="done" initial={{ opacity:0 }} animate={{ opacity:1 }}
                     style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 12px', borderRadius:10, background:'var(--mine-surface-2)', boxShadow:'inset 0 0 0 1px var(--mine-line)', color:'var(--mine-text-2)', fontWeight:600, fontSize:12.5 }}>
-                    <CheckCircle size={14} style={{ color:'var(--mine-accent)' }}/> You&apos;re on the list.
+                    <CheckCircle size={14} className="celebrate-pop" style={{ color:'var(--mine-accent)' }}/> You&apos;re on the list.
                   </motion.div>
                 )}
               </AnimatePresence>
