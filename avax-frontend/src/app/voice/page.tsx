@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bot, ChevronLeft, Mic, MicOff, Volume2, VolumeX, ShieldCheck, X, Loader2, Send as SendIcon, Wallet } from 'lucide-react';
+import { Bot, ChevronLeft, Mic, MicOff, Volume2, VolumeX, ShieldCheck, Loader2, Send as SendIcon, Wallet } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { formatChat } from '@/lib/formatChat';
+import {
+  executeEscrowCreate,
+  executeEscrowRelease,
+  executeSwap,
+  snowtraceLink,
+} from '@/lib/agent/executeSchema';
 
 interface Plan {
   name?: string;
@@ -20,7 +26,7 @@ interface Msg {
 }
 
 const WELCOME =
-  "Hey, I'm KAI Voice Agent. Talk to me or type. I can read your Avalanche balances, check APYs and conservation NFTs, and prepare M-Pesa, swap, NFT and escrow plans for your approval. I never move money without you signing.";
+  "Hey, I'm KAI Voice Agent. Talk to me or type. I can read your Avalanche balances, compare APYs, check conservation NFTs, quote x402 payments, and prepare swap, M-Pesa, NFT and on-chain escrow plans. You approve every financial action in your wallet — I never move money without you signing.";
 
 // Must match the server-side default in lib/mpesa.ts's MPESA_KES_PER_USD — this
 // client constant only exists to pre-convert into /api/mpesa/stk's `priceYbob`
@@ -155,15 +161,64 @@ export default function VoiceAgentPage() {
       return;
     }
     if (action === 'swap') {
-      moveToAppRoute('/swap');
+      // send_swap — funds MUST come from this exact signed flow (never the agent).
+      if (!wallet) {
+        const acct = await connectWallet();
+        if (!acct) { setStkStatus('Connect a wallet first to sign the swap.'); return; }
+      }
+      setStkStatus('Signing the swap in your wallet…');
+      try {
+        const res = await executeSwap({
+          fromToken: String(plan.fromToken || ''),
+          fromAmount: Number(plan.fromAmount || 0),
+          toToken: String(plan.toToken || ''),
+        });
+        setStkStatus(`Swap sent — ${snowtraceLink('tx', res.txHash)}. Track it on Snowtrace.`);
+      } catch (e) {
+        setStkStatus(`Swap failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
       return;
     }
     if (action === 'nft_purchase') {
       moveToAppRoute('/connft');
       return;
     }
+    if (action === 'escrow_create') {
+      // create_escrow — approve yBOB + deposit into KaiEscrow after human approval.
+      if (!wallet) {
+        const acct = await connectWallet();
+        if (!acct) { setStkStatus('Connect a wallet first to lock escrow funds.'); return; }
+      }
+      setStkStatus('Signing yBOB approval, then locking funds in KaiEscrow…');
+      try {
+        const res = await executeEscrowCreate({
+          purpose: String(plan.purpose || 'KAI agent payment'),
+          amountToken: Number(plan.amountToken || 0),
+          token: String(plan.token || 'yBOB'),
+        });
+        setStkStatus(`Escrow funded — ${snowtraceLink('tx', res.txHash)}. Funds are locked until release condition + your approval.`);
+      } catch (e) {
+        setStkStatus(`Escrow failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
+      return;
+    }
+    if (action === 'escrow_release') {
+      // request_escrow_release — agent cannot release unilaterally; human signs.
+      if (!wallet) {
+        const acct = await connectWallet();
+        if (!acct) { setStkStatus('Connect a wallet first to approve escrow release.'); return; }
+      }
+      setStkStatus('Signing escrow release — paying the provider…');
+      try {
+        const res = await executeEscrowRelease(String(plan.escrowId || ''));
+        setStkStatus(`Escrow released — ${snowtraceLink('tx', res.txHash)}. Provider paid.`);
+      } catch (e) {
+        setStkStatus(`Release failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
+      return;
+    }
     if (action === 'escrow') {
-      setStkStatus('Escrow release is a guarded on-chain flow (Phase 7). Showing preview — a signable contract step is coming.');
+      setStkStatus('Escrow plan created. To lock funds, ask me to "hold in escrow" and approve the escrow_create plan.');
       return;
     }
     setStkStatus(`Approved plan: ${action} (link signed through wallet when available).`);

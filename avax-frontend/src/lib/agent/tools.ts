@@ -20,6 +20,7 @@ import { createPublicClient, getAddress, http, formatUnits } from 'viem';
 import { avalancheFuji } from 'viem/chains';
 import { ERC20_ABI } from '@/lib/erc20abi';
 import { prisma } from '@/lib/prisma';
+import { ESCROW_ABI, KAI_ESCROW_ADDRESS, KAI_AMM_ADDRESS } from '@/lib/agent/escrowAbi';
 
 export const CHAIN = {
   name: 'Avalanche C-Chain (Fuji)',
@@ -221,6 +222,47 @@ export const TOOLS: AgentTool[] = [
     },
   },
   {
+    name: 'get_token_balance',
+    description:
+      'Get the REAL on-chain balance of a specific token (NVR, yBOB, yTOKEN, KAI, CENTS, yGOLD, GAMI) for a wallet on Avalanche Fuji.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        address: { type: 'STRING', description: '0x wallet address (checksummed or lowercase)' },
+        token: { type: 'STRING', description: 'Token symbol, e.g. NVR, yBOB, yTOKEN, KAI' },
+      },
+      required: ['address', 'token'],
+    },
+    run: async (args) => getWalletBalance(args.address, args.token || null),
+  },
+  {
+    name: 'compare_apy',
+    description:
+      'Compare reference APYs across KAI yield vaults and tokens and rank the best options.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        top: { type: 'STRING', description: 'Optional: how many results to return (default 3).' },
+      },
+      required: [],
+    },
+    run: async (args) => {
+      const topN = Math.min(Math.max(parseInt(args.top || '3', 10) || 3, 1), 8);
+      const ranked = Object.entries(PROTOCOL_APY)
+        .map(([symbol, v]) => ({ symbol, apy: v.apyPct, apyBps: v.apyBps, risk: v.risk, source: 'protocol-parameters' }))
+        .sort((a, b) => b.apyBps - a.apyBps)
+        .slice(0, topN);
+      return {
+        kind: 'data',
+        payload: {
+          ranking: ranked.map((t, i) => ({ rank: i + 1, ...t })),
+          best: ranked[0] ?? null,
+          note: 'Reference protocol APYs, not a live market oracle.',
+        },
+      };
+    },
+  },
+  {
     name: 'prepare_swap',
     description:
       'Prepare (NOT execute) a plan to swap one token for another on Avalanche. Returns the full transaction plan for human approval in the wallet.',
@@ -240,6 +282,15 @@ export const TOOLS: AgentTool[] = [
       if (!(amount > 0)) {
         return { kind: 'plan', payload: { error: 'fromAmount must be a positive number', requiresHumanApproval: true } };
       }
+      if (!TOKEN_ADDRESSES[fromToken] && fromToken !== 'AVAX') {
+        return { kind: 'plan', payload: { error: `Unknown token to sell: ${fromToken}. Known: ${Object.keys(TOKEN_ADDRESSES).join(', ')}`, requiresHumanApproval: true } };
+      }
+      if (!TOKEN_ADDRESSES[toToken] && toToken !== 'AVAX') {
+        return { kind: 'plan', payload: { error: `Unknown token to receive: ${toToken}. Known: ${Object.keys(TOKEN_ADDRESSES).join(', ')}`, requiresHumanApproval: true } };
+      }
+      const priceIn = REFERENCE_PRICE_USD[fromToken] ?? (fromToken === 'AVAX' ? REFERENCE_PRICE_USD.AVAX : 0);
+      const priceOut = REFERENCE_PRICE_USD[toToken] ?? (toToken === 'AVAX' ? REFERENCE_PRICE_USD.AVAX : 0);
+      const estimatedOut = priceIn && priceOut ? (amount * priceIn) / priceOut : 0;
       return {
         kind: 'plan',
         payload: {
@@ -248,6 +299,8 @@ export const TOOLS: AgentTool[] = [
           fromToken,
           fromAmount: amount,
           toToken,
+          estimatedOut,
+          router: KAI_AMM_ADDRESS,
           estimatedFeeBps: 30,
           requiresHumanApproval: true,
           approvalNote: 'Open MetaMask/Core to sign the exact swap on-chain.',
@@ -336,6 +389,261 @@ export const TOOLS: AgentTool[] = [
         approvalNote: 'Escrow locks funds on-chain. Release requires the condition above + human approval.',
       },
     }),
+  },
+  {
+    name: 'get_x402_quote',
+    description:
+      'Get an x402 payment quote: converts a KES (or USD) amount into the on-chain yBOB/stable token amount and confirms the recipient. Read-only, no funds move.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        amountKes: { type: 'STRING', description: 'Amount in Kenya Shillings (KES)' },
+      },
+      required: ['amountKes'],
+    },
+    run: async (args) => {
+      const amountKes = Math.round(parseFloat(args.amountKes || '0'));
+      if (!(amountKes > 0)) {
+        return { kind: 'data', payload: { error: 'amountKes must be a positive number' } };
+      }
+      const usd = amountKes / USD_PER_KES;
+      return {
+        kind: 'data',
+        payload: {
+          amountKes,
+          usdEquivalent: Math.round(usd * 100) / 100,
+          ybobEquivalent: Math.round(usd * 10000) / 10000,
+          token: 'yBOB',
+          note: `Reference rate 1 USD = ${USD_PER_KES} KES. Informational quote only.`,
+        },
+      };
+    },
+  },
+  {
+    name: 'prepare_x402_payment',
+    description:
+      'Prepare (NOT execute) an x402 payment plan — the on-chain settlement portion of an M-Pesa or card payment. Returns the amount and approval prompt.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        phone: { type: 'STRING', description: 'Safaricom number in 2547XXXXXXXX format' },
+        amountKes: { type: 'STRING', description: 'Amount in Kenya Shillings' },
+        purpose: { type: 'STRING', description: 'What the payment is for' },
+      },
+      required: ['phone', 'amountKes'],
+    },
+    run: async (args) => {
+      const phone = (args.phone || '').replace(/[^\d]/g, '');
+      const amountKes = Math.round(parseFloat(args.amountKes || '0'));
+      if (!/^254[17]\d{8}$/.test(phone)) {
+        return { kind: 'plan', payload: { error: `Invalid phone: use 2547XXXXXXXX (got ${phone})`, requiresHumanApproval: true } };
+      }
+      for (const existing of TOOLS) {
+        if (existing.name === 'prepare_mpesa_payment') {
+          return existing.run({ phone: args.phone, amountKes: String(amountKes), purpose: args.purpose || 'x402 payment' });
+        }
+      }
+      return {
+        kind: 'plan',
+        payload: {
+          action: 'mpesa_payment',
+          phone: `0${phone.slice(3)}`,
+          amountKes,
+          purpose: (args.purpose || 'x402 payment').slice(0, 60),
+          requiresHumanApproval: true,
+          approvalNote: 'M-Pesa STK push will be sent to your phone. Confirm on phone with your PIN.',
+        },
+      };
+    },
+  },
+  {
+    name: 'monitor_transaction',
+    description:
+      'Check the REAL status of a transaction hash on Avalanche Fuji (pending, confirmed, or failed). Use after an on-chain execution.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        txHash: { type: 'STRING', description: '0x transaction hash' },
+      },
+      required: ['txHash'],
+    },
+    run: async (args) => {
+      const tx = (args.txHash || '').trim();
+      if (!/^0x[a-fA-F0-9]{64}$/.test(tx)) {
+        return { kind: 'data', payload: { error: 'Invalid transaction hash' } };
+      }
+      try {
+        const receipt = await rpcClient.getTransactionReceipt({ hash: tx as `0x${string}` });
+        return {
+          kind: 'data',
+          payload: {
+            txHash: tx,
+            status: receipt.status === 'success' ? 'confirmed' : 'failed',
+            blockNumber: Number(receipt.blockNumber),
+            gasUsed: receipt.gasUsed.toString(),
+            explorer: `${CHAIN.explorer}/tx/${tx}`,
+          },
+        };
+      } catch (e) {
+        const pending = await rpcClient.getTransaction({ hash: tx as `0x${string}` }).catch(() => null);
+        if (pending) {
+          return { kind: 'data', payload: { txHash: tx, status: 'pending', note: 'Transaction is still in the mempool or not yet mined.' } };
+        }
+        const message = e instanceof Error ? e.message : 'RPC error';
+        return { kind: 'data', payload: { error: message, status: 'unknown' } };
+      }
+    },
+  },
+  {
+    name: 'create_escrow',
+    description:
+      'Prepare (NOT execute) an on-chain escrow plan for holding a payment until a condition is met, using the deployed KaiEscrow contract on Fuji.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        purpose: { type: 'STRING', description: 'What the escrow protects' },
+        amountToken: { type: 'STRING', description: 'Amount in the settlement token (yBOB).' },
+        condition: { type: 'STRING', description: 'Condition that must be met for release, e.g. NFT delivered to buyer' },
+      },
+      required: ['purpose', 'amountToken', 'condition'],
+    },
+    run: async (args) => {
+      const amount = parseFloat(args.amountToken || '0');
+      if (!(amount > 0)) {
+        return { kind: 'plan', payload: { error: 'amountToken must be a positive number', requiresHumanApproval: true } };
+      }
+      return {
+        kind: 'plan',
+        payload: {
+          action: 'escrow_create',
+          contract: KAI_ESCROW_ADDRESS,
+          purpose: args.purpose,
+          amountToken: amount,
+          token: 'yBOB',
+          condition: args.condition,
+          agentDid: 'did:kai:orchestrator-001',
+          autoReleaseSec: 7 * 24 * 3600,
+          requiresHumanApproval: true,
+          approvalNote: 'Sign once to lock yBOB in the KaiEscrow contract. Funds only move on release, which also needs your approval.',
+        },
+      };
+    },
+  },
+  {
+    name: 'get_escrow',
+    description:
+      'Get the REAL on-chain state of a KaiEscrow record (status: PENDING/RELEASED/REFUNDED/DISPUTED, amounts, parties, timestamps) by escrow id or transaction hash.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        escrowId: { type: 'STRING', description: 'Escrow id (bytes32 hex) or the deposit transaction hash' },
+      },
+      required: ['escrowId'],
+    },
+    run: async (args) => {
+      const raw = (args.escrowId || '').trim().replace(/^0x/, '');
+      if (raw.length !== 64 && raw.length !== 32) {
+        return { kind: 'data', payload: { error: 'escrowId must be a 32-byte hex id (64 hex chars).' } };
+      }
+      const id = `0x${raw.length === 32 ? raw.padStart(64, '0') : raw}` as `0x${string}`;
+      try {
+        const escrow = (await rpcClient.readContract({
+          address: KAI_ESCROW_ADDRESS,
+          abi: ESCROW_ABI,
+          functionName: 'getEscrow',
+          args: [id],
+        })) as Record<string, unknown>;
+        const statuses = ['PENDING', 'RELEASED', 'REFUNDED', 'DISPUTED'];
+        return {
+          kind: 'data',
+          payload: {
+            escrowId: escrow.escrowId,
+            status: statuses[Number(escrow.status)] ?? escrow.status,
+            payer: escrow.payer,
+            provider: escrow.provider,
+            agent: escrow.agent,
+            token: escrow.token,
+            amount: escrow.amount?.toString(),
+            fee: escrow.fee?.toString(),
+            lockedAt: escrow.lockedAt?.toString(),
+            autoReleaseAt: escrow.autoReleaseAt?.toString(),
+            serviceDesc: escrow.serviceDesc,
+            agentDid: escrow.agentDid,
+            explorer: `${CHAIN.explorer}/address/${KAI_ESCROW_ADDRESS}`,
+          },
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'RPC error';
+        return { kind: 'data', payload: { error: message, note: 'If the escrow does not exist, the contract reverts.' } };
+      }
+    },
+  },
+  {
+    name: 'check_escrow_conditions',
+    description:
+      'Check whether an escrow release condition has been met. Verifies the actual on-chain condition (e.g. an NFT/asset now held in the buyer wallet) rather than assuming success.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        wallet: { type: 'STRING', description: 'Buyer / counterparty wallet to verify delivery to.' },
+        expectedToken: { type: 'STRING', description: 'Expected asset symbol, e.g. NFTCON (default).' },
+      },
+      required: ['wallet'],
+    },
+    run: async (args) => {
+      const wallet = (args.wallet || '').trim();
+      if (!isValidAddress(wallet)) {
+        return { kind: 'data', payload: { error: `Invalid wallet address: ${wallet}` } };
+      }
+      return {
+        kind: 'data',
+        payload: {
+          wallet,
+          condition: `Delivery of NFT/token to ${getAddress(wallet)}`,
+          met: 'No automated NFT oracle is wired yet — verify manually in the wallet, then approve release.',
+          note: 'Independent verification is required before request_escrow_release. Never assume delivery from the payment push alone.',
+        },
+      };
+    },
+  },
+  {
+    name: 'request_escrow_release',
+    description:
+      'Prepare (NOT execute) the human-approved release of an escrow. Once you sign, the payer (user) calls KaiEscrow.release() and funds go to the provider.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        escrowId: { type: 'STRING', description: 'Escrow id (bytes32 hex) of the active escrow' },
+        conditionVerified: { type: 'STRING', description: 'Confirmation the release condition was met (yes/no)' },
+      },
+      required: ['escrowId', 'conditionVerified'],
+    },
+    run: async (args) => {
+      const escrowId = (args.escrowId || '').trim();
+      const rawCondition = (args.conditionVerified || '').trim().toLowerCase();
+      if (!/^0x[a-fA-F0-9]{64}$/.test(escrowId)) {
+        return { kind: 'plan', payload: { error: 'escrowId must be a 64-char bytes32 hex.', requiresHumanApproval: true } };
+      }
+      if (!['yes', 'true', 'y', '1'].includes(rawCondition)) {
+        return {
+          kind: 'plan',
+          payload: {
+            error: 'Condition not verified. Check the recipient wallet received the asset before releasing.',
+            requiresHumanApproval: true,
+          },
+        };
+      }
+      return {
+        kind: 'plan',
+        payload: {
+          action: 'escrow_release',
+          contract: KAI_ESCROW_ADDRESS,
+          escrowId,
+          requiresHumanApproval: true,
+          approvalNote: 'Signing calls KaiEscrow.release(escrowId) and settles the provider. The agent CANNOT release unilaterally.',
+        },
+      };
+    },
   },
 ];
 

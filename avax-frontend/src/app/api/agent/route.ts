@@ -16,6 +16,9 @@
 
 import { NextResponse } from 'next/server';
 import { functionDeclarations, findTool, type ToolResult } from '@/lib/agent/tools';
+import { KAI_ORCHESTRATOR_DID } from '@/lib/agent/escrowAbi';
+import { appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -55,6 +58,45 @@ interface GeminiContent {
 function sse(message: string, event?: string): string {
   const lines = event ? `event: ${event}\ndata: ${message}\n\n` : `data: ${message}\n\n`;
   return lines;
+}
+
+// ── RAG: conversation memory only ─────────────────────────────────────────────
+// Per-wallet ring buffer of recent turns. RAG is NEVER the source of truth for
+// balances, transactions or escrow state — those are always fetched live via
+// the tool registry. This only lets the agent answer "what did I ask earlier?".
+const CONVERSATION_MEMORY = new Map<string, { role: string; text: string }[]>();
+const MEMORY_MAX = 12; // keep the last 12 turns per wallet
+
+function remember(wallet: string | undefined, role: string, text: string) {
+  const key = wallet && /^0x[a-fA-F0-9]{40}$/.test(wallet) ? wallet : 'anonymous';
+  const buf = CONVERSATION_MEMORY.get(key) ?? [];
+  buf.push({ role, text });
+  if (buf.length > MEMORY_MAX) buf.splice(0, buf.length - MEMORY_MAX);
+  CONVERSATION_MEMORY.set(key, buf);
+}
+
+function recall(wallet: string | undefined): GeminiContent[] {
+  const key = wallet && /^0x[a-fA-F0-9]{40}$/.test(wallet) ? wallet : 'anonymous';
+  const buf = CONVERSATION_MEMORY.get(key) ?? [];
+  return buf.map((t) => ({
+    role: t.role === 'user' ? ('user' as const) : ('model' as const),
+    parts: [{ text: t.text }],
+  }));
+}
+
+// ── DID audit trail ───────────────────────────────────────────────────────────
+const AUDIT_FILE = join(process.cwd(), '.agent-audit.jsonl');
+const AUDIT_RING: Record<string, unknown>[] = [];
+
+function audit(entry: Record<string, unknown>) {
+  const line = JSON.stringify({
+    did: KAI_ORCHESTRATOR_DID,
+    at: new Date().toISOString(),
+    ...entry,
+  });
+  AUDIT_RING.push(JSON.parse(line));
+  if (AUDIT_RING.length > 200) AUDIT_RING.shift();
+  appendFile(AUDIT_FILE, `${line}\n`).catch(() => {});
 }
 
 async function callGemini(contents: GeminiContent[]) {
@@ -140,12 +182,16 @@ export async function POST(req: Request) {
   const wallet = (body.wallet || '').trim();
   const initials = wallet ? `\n\nThe user's connected wallet address is ${wallet}. Use it with get_wallet_balance when relevant.` : '';
 
-  const contents: GeminiContent[] = [
-    { role: 'user', parts: [{ text: message + initials }] },
-  ];
+  remember(wallet || undefined, 'user', message);
+
+  // RAG memory: inject the last few turns so "what did I ask earlier?" works.
+  const history = recall(wallet || undefined);
+  history.push({ role: 'user', parts: [{ text: message + initials }] });
+  const contents: GeminiContent[] = history;
 
   const approvals: Record<string, unknown>[] = [];
   let finalText = '';
+  let planCount = 0;
 
   try {
     for (let i = 0; i < 4; i++) {
@@ -161,6 +207,7 @@ export async function POST(req: Request) {
         const fnArgs = (funcCall.args ?? {}) as Record<string, string>;
 
         if (!tool) {
+          audit({ event: 'tool_unknown', tool: funcCall.name, wallet: wallet || null });
           contents.push(
             { role: 'model', parts: [{ functionCall: { name: funcCall.name, args: funcCall.args } }] },
             {
@@ -171,9 +218,18 @@ export async function POST(req: Request) {
           continue;
         }
 
+        audit({ event: 'tool_call', tool: tool.name, args: fnArgs, wallet: wallet || null });
+
         const result: ToolResult = await tool.run(fnArgs);
         if (result.kind === 'plan') {
+          planCount += 1;
           approvals.push({ name: tool.name, ...result.payload });
+          audit({
+            event: 'approval_request',
+            tool: tool.name,
+            payload: result.payload,
+            wallet: wallet || null,
+          });
         }
 
         contents.push(
@@ -193,10 +249,13 @@ export async function POST(req: Request) {
 
       if (textPart) {
         finalText = textPart;
+        remember(wallet || undefined, 'model', finalText);
+        audit({ event: 'reply', text: finalText, planCount, wallet: wallet || null });
         return streamAndFinish(finalText, approvals);
       }
     }
 
+    if (finalText) remember(wallet || undefined, 'model', finalText);
     return streamAndFinish(finalText || 'I could not finish planning that request. Please try rephrasing.', approvals);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Agent error';
@@ -206,4 +265,13 @@ export async function POST(req: Request) {
       [],
     );
   }
+}
+
+/** GET /api/agent — expose the agent's DID audit trail (last 100 entries). */
+export async function GET() {
+  return NextResponse.json({
+    did: KAI_ORCHESTRATOR_DID,
+    count: AUDIT_RING.length,
+    entries: AUDIT_RING.slice(-100),
+  });
 }

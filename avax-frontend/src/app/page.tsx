@@ -18,7 +18,7 @@ import {
   Bot, Copy, RefreshCw, ChevronRight, TrendingUp,
   ShieldCheck, Coins, Wallet,
   CircleDollarSign, BarChart3, Activity, Zap,
-  Mountain, Link2,
+  Mountain, Link2, Mic,
 } from 'lucide-react';
 
 /* text-shadow so words stay readable over the (now dimmed) background photo */
@@ -33,18 +33,19 @@ const label: React.CSSProperties = { fontSize: 12, color: 'var(--home-muted)', l
 const sectionDivider = '1px solid rgba(255,255,255,0.10)';
 
 const QUICK = [
-  { name: 'AI Agent',   href: '/ai',        icon: Bot },
-  { name: 'Playground', href: '/nuvari',     icon: FlaskConical },
-  { name: 'Scan & Pay', href: '/pay',        icon: ScanLine },
-  { name: 'Products',   href: '/products',   icon: CircleDollarSign },
-  { name: 'SDG Impact', href: '/sdg',        icon: Globe },
-  { name: 'Securities', href: '/securities', icon: ShieldCheck },
-  { name: 'NFT Mkt',    href: '/connft',     icon: ImageIcon },
-  { name: 'Pools',      href: '/pools',      icon: Droplets },
-  { name: 'Vaults',     href: '/vaults',     icon: Lock },
-  { name: 'Airdrop',    href: '/mine',       icon: Gift },
-  { name: 'KAI Web',    href: '/kai',        icon: Globe },
-  { name: 'TaaS',       href: '/taas',       icon: LayoutGrid },
+  { name: 'Voice Agent', href: '/voice',     icon: Mic },
+  { name: 'AI Agent',    href: '/ai',        icon: Bot },
+  { name: 'Playground',  href: '/nuvari',     icon: FlaskConical },
+  { name: 'Scan & Pay',  href: '/pay',        icon: ScanLine },
+  { name: 'Products',    href: '/products',   icon: CircleDollarSign },
+  { name: 'SDG Impact',  href: '/sdg',        icon: Globe },
+  { name: 'Securities',  href: '/securities', icon: ShieldCheck },
+  { name: 'NFT Mkt',     href: '/connft',     icon: ImageIcon },
+  { name: 'Pools',       href: '/pools',      icon: Droplets },
+  { name: 'Vaults',      href: '/vaults',     icon: Lock },
+  { name: 'Airdrop',     href: '/mine',       icon: Gift },
+  { name: 'KAI Web',     href: '/kai',        icon: Globe },
+  { name: 'TaaS',        href: '/taas',       icon: LayoutGrid },
 ];
 
 const DASHBOARDS = [
