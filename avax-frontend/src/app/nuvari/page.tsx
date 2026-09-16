@@ -10,7 +10,8 @@ import {
   Shield, Lock, Users, Search, Play, ChevronRight, TerminalSquare,
   Loader, ExternalLink, Code, FileText, Sparkles, X,
   Zap, BookOpen, History, Settings, Database,
-  CheckCircle, XCircle, Plus, Briefcase
+  CheckCircle, XCircle, Plus, Briefcase,
+  PiggyBank, Landmark, Wheat, Trees, HeartPulse, Building2, Droplet, Milk, Sprout, ScrollText,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════
@@ -36,7 +37,7 @@ const TREASURY_ADDRESS = (TREASURY_FROM_LIB ?? "0xB13727161583e38185530755a1A96D
 const POLICY_FEE_AVAX = "0.0001";
 
 // ═══════════════════════════════════════════════════════════
-// OPERATIONS REGISTRY — full 70+ ops across 3 services
+// OPERATIONS REGISTRY: full 70+ ops across 3 services
 // ═══════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════
 // NAV SECTIONS
@@ -314,7 +315,7 @@ export default function KaiPlayground() {
       {/* ── LEFT SIDEBAR ──────────────────────────────── */}
       <div style={{ width:"min(220px, 40vw)", flexShrink:0, borderRight:"1px solid rgba(255,255,255,0.07)", display:"flex", flexDirection:"column", background:"#0b0f0c" }} className={`panel-sidebar ${mobilePanel === "nav" ? "mobile-show" : "mobile-hide"}`}>
         
-        {/* Logo — desktop only */}
+        {/* Logo (desktop only) */}
         <div style={{ padding:"16px 16px 12px", borderBottom:"1px solid rgba(255,255,255,0.06)" }} className="desktop-only">
           <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
             <span style={{ fontSize:"16px", fontWeight:"900", letterSpacing:"-0.5px" }}>
@@ -412,24 +413,17 @@ export default function KaiPlayground() {
           {activeSection === "build-policy" ? (
             <div style={{ padding:"10px" }}>
               <div style={{ fontSize:"10px", color:"rgba(255,255,255,0.3)", textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:"10px" }}>Policy Types</div>
-              {[
-                { id:"pension", icon:"", label:"KAIVAX Pension",  color:"#A78BFA" },
-                { id:"trust",   icon:"", label:"KAI Trust",       color:"#FFD700" },
-                { id:"crop",    icon:"", label:"Crop Insurance",  color:"#EAB308" },
-                { id:"forest",  icon:"", label:"Forest Protection",color:"#22C55E" },
-                { id:"medical", icon:"", label:"Medical Pool",    color:"#EF4444" },
-                { id:"rwa",     icon:"", label:"RWA Tokenization",color:"#F97316" },
-                { id:"honey",   icon:"", label:"Honey Reserve",   color:"#F59E0B" },
-                { id:"milk",    icon:"", label:"Milk Pool",       color:"#60A5FA" },
-                { id:"seeds",   icon:"", label:"Seed Bank",       color:"#86EFAC" },
-                { id:"recipe",  icon:"", label:"Recipe IP Vault", color:"#F97316" },
-              ].map(t => (
-                <button key={t.id} onClick={() => { setBpTemplate(t.id); setBpFields({}); setBpStatus(""); }}
-                  style={{ width:"100%", background: bpTemplate===t.id ? `${t.color}18` : "rgba(255,255,255,0.02)", border:`1px solid ${bpTemplate===t.id ? t.color+"40" : "rgba(255,255,255,0.05)"}`, borderRadius:"6px", padding:"9px 11px", textAlign:"left", cursor:"pointer", marginBottom:"4px", display:"flex", alignItems:"center", gap:"8px", transition:"all 0.15s" }}>
-                  <span>{t.icon}</span>
-                  <span style={{ fontSize:"12px", fontWeight:"600", color: bpTemplate===t.id ? t.color : "#d4d4d4" }}>{t.label}</span>
-                </button>
-              ))}
+              {Object.entries(BP_TEMPLATES).map(([id, t]) => {
+                const isActive = bpTemplate === id;
+                const Icon = t.icon;
+                return (
+                  <button key={id} onClick={() => { setBpTemplate(id); setBpFields({}); setBpStatus(""); }}
+                    style={{ width:"100%", background: isActive ? `${t.color}18` : "rgba(255,255,255,0.02)", border:`1px solid ${isActive ? t.color+"40" : "rgba(255,255,255,0.05)"}`, borderRadius:"6px", padding:"9px 11px", textAlign:"left", cursor:"pointer", marginBottom:"4px", display:"flex", alignItems:"center", gap:"8px", transition:"all 0.15s" }}>
+                    <Icon size={14} color={isActive ? t.color : "rgba(255,255,255,0.4)"} />
+                    <span style={{ fontSize:"12px", fontWeight:"600", color: isActive ? t.color : "#d4d4d4" }}>{t.label}</span>
+                  </button>
+                );
+              })}
             </div>
           ) : activeSection === "execution" ? (
             <div>
@@ -443,7 +437,7 @@ export default function KaiPlayground() {
                     <span style={{ fontSize:"11px", fontWeight:"600", color:"#fff" }}>#{execHistory.length - i} {ex.opName}</span>
                     <span style={{ fontSize:"10px", color: statusColor(ex.status), textTransform:"uppercase" }}>{ex.status}</span>
                   </div>
-                  <div style={{ fontSize:"10px", color:"rgba(255,255,255,0.3)", fontFamily:"monospace" }}>{ex.policyId || "—"}</div>
+                  <div style={{ fontSize:"10px", color:"rgba(255,255,255,0.3)", fontFamily:"monospace" }}>{ex.policyId || "Pending"}</div>
                 </button>
               ))}
             </div>
@@ -556,7 +550,7 @@ export default function KaiPlayground() {
                 {aiLoading ? "Thinking…" : "Ask AI"}
               </button>
             </div>
-            {aiDraft && <div style={{ whiteSpace:"pre-wrap", marginTop:"9px", fontSize:"11px", lineHeight:1.5, color: aiDraft.startsWith("ℹ️") ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.7)" }}>{aiDraft}</div>}
+            {aiDraft && <div style={{ whiteSpace:"pre-wrap", marginTop:"9px", fontSize:"11px", lineHeight:1.5, color: aiAvailable === false ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.7)" }}>{aiDraft}</div>}
           </div>
           {/* ── BUILD POLICY section takes over the form area ── */}
           {activeSection === "build-policy" ? (
@@ -730,15 +724,15 @@ export default function KaiPlayground() {
                 {[
                   ["ID",             currentExec.txId || currentExec.id],
                   ["Type",           "Crypto Transfer"],
-                  ["Confirmed at",    currentExec.confirmedAt ? currentExec.confirmedAt.slice(0,19).replace("T"," ") : "—"],
-                  ["Transaction Hash", currentExec.txHash || "—"],
+                  ["Confirmed at",    currentExec.confirmedAt ? currentExec.confirmedAt.slice(0,19).replace("T"," ") : "Not confirmed yet"],
+                  ["Transaction Hash", currentExec.txHash || "Pending"],
                   ["Network",         "Avalanche Fuji"],
                   ["Treasury",        TREASURY_ADDRESS],
                   ["Memo",           currentExec.opName],
-                  ["Payer Account",  currentExec.payerAccount || "—"],
-                  ["AVAX Fee",        currentExec.avaxFee || "—"],
-                  ["Policy ID",      currentExec.policyId || "—"],
-                  ["Treasury Payment", currentExec.platformFee || "—"],
+                  ["Payer Account",  currentExec.payerAccount || "Not set"],
+                  ["AVAX Fee",        currentExec.avaxFee || "Pending"],
+                  ["Policy ID",      currentExec.policyId || "Pending"],
+                  ["Treasury Payment", currentExec.platformFee || "Pending"],
                 ].map(([k,v]) => (
                   <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:"11px", padding:"7px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
                     <span style={{ color:"rgba(255,255,255,0.4)" }}>{k}</span>
@@ -812,37 +806,39 @@ export default function KaiPlayground() {
           .panel-ops      { display: flex !important; }
           .panel-form     { display: flex !important; }
           .panel-terminal { display: flex !important; }
-          .mobile-hide, .mobile-show { /* reset — all visible */ }
+          .mobile-hide, .mobile-show { /* reset: all visible */ }
         }
       `}</style>
     </div>
   );
 }
 
-// ─── SERVICE TEMPLATES for Build Policy ──────────────────────────────────────
+// ─── SERVICE TEMPLATES for Build Policy (single source of truth: also
+// drives the template picker list in the sidebar, so there is one place
+// to add or edit a policy type) ────────────────────────────────────────
 const BP_TEMPLATES: Record<string, {
-  icon: string; label: string; color: string;
+  icon: React.ComponentType<{ size?: number; color?: string }>; label: string; color: string;
   fields: { key: string; label: string; placeholder: string; type?: string }[];
 }> = {
-  pension:  { icon:"", label:"KAIVAX Pension",    color:"#A78BFA",
+  pension:  { icon: PiggyBank,  label:"KAIVAX Pension",    color:"#A78BFA",
     fields:[{key:"vestingYears",label:"Vesting period (years)",placeholder:"5",type:"number"},{key:"monthlyDeposit",label:"Monthly deposit (NVR)",placeholder:"100",type:"number"},{key:"beneficiary",label:"Beneficiary address",placeholder:"0x…"}]},
-  trust:    { icon:"", label:"KAI Trust",          color:"#FFD700",
+  trust:    { icon: Landmark,   label:"KAI Trust",          color:"#FFD700",
     fields:[{key:"lockYears",label:"Lock duration (years)",placeholder:"5",type:"number"},{key:"amount",label:"Trust amount (NVR)",placeholder:"1000",type:"number"},{key:"beneficiary",label:"Beneficiary address",placeholder:"0x…"}]},
-  crop:     { icon:"", label:"Crop Insurance",     color:"#EAB308",
+  crop:     { icon: Wheat,      label:"Crop Insurance",     color:"#EAB308",
     fields:[{key:"cropType",label:"Crop type",placeholder:"Maize"},{key:"hectares",label:"Area (hectares)",placeholder:"10",type:"number"},{key:"season",label:"Season (YYYY)",placeholder:"2026",type:"number"}]},
-  forest:   { icon:"", label:"Forest Protection",  color:"#22C55E",
+  forest:   { icon: Trees,      label:"Forest Protection",  color:"#22C55E",
     fields:[{key:"forestId",label:"Forest ID / parcel",placeholder:"KE-001"},{key:"hectares",label:"Hectares covered",placeholder:"50",type:"number"},{key:"duration",label:"Coverage (months)",placeholder:"12",type:"number"}]},
-  medical:  { icon:"", label:"Medical Pool",       color:"#EF4444",
+  medical:  { icon: HeartPulse, label:"Medical Pool",       color:"#EF4444",
     fields:[{key:"members",label:"Pool members",placeholder:"100",type:"number"},{key:"coverageUsd",label:"Max coverage (USD)",placeholder:"500",type:"number"},{key:"duration",label:"Policy duration (mo)",placeholder:"12",type:"number"}]},
-  rwa:      { icon:"", label:"RWA Tokenization",  color:"#F97316",
+  rwa:      { icon: Building2,  label:"RWA Tokenization",  color:"#F97316",
     fields:[{key:"assetType",label:"Asset type",placeholder:"Land"},{key:"valuationUsd",label:"Valuation (USD)",placeholder:"10000",type:"number"},{key:"location",label:"Location / parcel ID",placeholder:"Nairobi, KE-042"}]},
-  honey:    { icon:"", label:"Honey Reserve",      color:"#F59E0B",
+  honey:    { icon: Droplet,    label:"Honey Reserve",      color:"#F59E0B",
     fields:[{key:"community",label:"Community name",placeholder:"Turkana Beekeepers"},{key:"kgTarget",label:"Target (kg)",placeholder:"500",type:"number"},{key:"season",label:"Harvest season",placeholder:"2026"}]},
-  milk:     { icon:"", label:"Pastoral Milk Pool", color:"#60A5FA",
+  milk:     { icon: Milk,       label:"Pastoral Milk Pool", color:"#60A5FA",
     fields:[{key:"cooperative",label:"Co-op name",placeholder:"Maasai Dairy Coop"},{key:"litresDaily",label:"Daily litres",placeholder:"200",type:"number"},{key:"duration",label:"Duration (months)",placeholder:"6",type:"number"}]},
-  seeds:    { icon:"", label:"Heritage Seed Bank",  color:"#86EFAC",
+  seeds:    { icon: Sprout,     label:"Heritage Seed Bank",  color:"#86EFAC",
     fields:[{key:"variety",label:"Crop variety",placeholder:"Njahi Beans"},{key:"kgStored",label:"Kg to store",placeholder:"50",type:"number"},{key:"location",label:"Storage location",placeholder:"Meru, Kenya"}]},
-  recipe:   { icon:"", label:"Recipe IP Vault",    color:"#F97316",
+  recipe:   { icon: ScrollText, label:"Recipe IP Vault",    color:"#F97316",
     fields:[{key:"recipeName",label:"Recipe / method name",placeholder:"Fermented Uji"},{key:"community",label:"Community owner",placeholder:"Luo Heritage Group"},{key:"licenseType",label:"License type",placeholder:"Community Commons"}]},
 };
 
@@ -929,7 +925,7 @@ function BuildPolicyPanel({
       {/* Dynamic fields */}
       <div style={{ background:"rgba(0,0,0,0.25)", border:`1px solid ${tmpl.color}30`, borderRadius:12, padding:16 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-            <span style={{ fontSize:14, fontWeight:800, color:tmpl.color }}>{tmpl.label}</span>
+          <tmpl.icon size={16} color={tmpl.color} />
           <span style={{ fontSize:14, fontWeight:800, color:tmpl.color }}>{tmpl.label}</span>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -975,7 +971,7 @@ function BuildPolicyPanel({
               const t = BP_TEMPLATES[p.serviceType];
               return (
                 <div key={p.policyId} style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
-                   <span style={{ fontSize:18 }}>{t?.icon ?? ""}</span>
+                  {t ? <t.icon size={16} color={t.color} /> : <Briefcase size={16} color="rgba(255,255,255,0.4)" />}
                   <div style={{ flex:1 }}>
                     <p style={{ fontSize:12, fontWeight:700, color:"#fff", margin:0 }}>{t?.label ?? p.serviceType}</p>
                     <p style={{ fontSize:10, fontFamily:"monospace", color:"rgba(255,255,255,0.3)", margin:"2px 0 0" }}>{p.policyId}</p>
