@@ -504,10 +504,10 @@ export default function KaiPlayground() {
       {/* ── CENTER: Config Form ───────────────────────── */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, borderRight:"1px solid rgba(255,255,255,0.07)" }} className={`panel-form ${mobilePanel === "form" ? "mobile-show" : "mobile-hide"}`}>
         
-        {/* Op Title + Execute button */}
-        <div style={{ padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)", display:"flex", justifyContent:"space-between", alignItems:"center", background:"rgba(255,255,255,0.01)", flexShrink:0 }}>
-          <div>
-            <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"3px" }}>
+        {/* Op Title + Execute button — stacks on narrow screens, see .op-header in <style> below */}
+        <div className="op-header" style={{ padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, background:"rgba(255,255,255,0.01)", flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"3px", flexWrap:"wrap" }}>
               <span style={{ color: accentColor }}>{NAV.find(n => n.id === activeSection)?.icon}</span>
               <h2 style={{ margin:0, fontSize:"15px", fontWeight:"700" }}>{selectedOp?.name ?? "Select an Operation"}</h2>
               {selectedOp?.badge && <span style={{ fontSize:"10px", background:`${accentColor}20`, color:accentColor, borderRadius:"4px", padding:"2px 7px" }}>{selectedOp.badge}</span>}
@@ -515,7 +515,7 @@ export default function KaiPlayground() {
             <p style={{ margin:0, fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>{selectedOp?.description ?? "Choose an operation from the left panel"}</p>
           </div>
 
-          <div style={{ display:"flex", gap:"10px", alignItems:"center" }}>
+          <div className="op-header-actions" style={{ display:"flex", gap:"10px", alignItems:"center", flexShrink:0 }}>
             {/* Tabs for form vs JSON */}
             <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"6px", padding:"2px" }}>
               {(["form","payload"] as const).map(t => (
@@ -527,7 +527,7 @@ export default function KaiPlayground() {
             </div>
 
             <button onClick={handleExecute} disabled={isRunning || !selectedOp}
-              style={{ background: accentColor, color:"#fff", border:"none", borderRadius:"7px", padding:"9px 22px", fontSize:"13px", fontWeight:"700", cursor: isRunning ? "not-allowed" : "pointer", display:"flex", alignItems:"center", gap:"6px", opacity: isRunning ? 0.7 : 1, transition:"opacity 0.2s" }}>
+              style={{ background: accentColor, color:"#fff", border:"none", borderRadius:"7px", padding:"9px 22px", fontSize:"13px", fontWeight:"700", cursor: isRunning ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:"6px", opacity: isRunning ? 0.7 : 1, transition:"opacity 0.2s", whiteSpace:"nowrap" }}>
               {isRunning ? <><Loader size={14} style={{ animation:"spin 1s linear infinite" }} /> Running…</> : <><Play size={14} /> Execute</>}
             </button>
           </div>
@@ -642,12 +642,12 @@ export default function KaiPlayground() {
           )}
         </div>
 
-        {/* Fuji Policy Status */}
-        <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(255,255,255,0.06)", background:"rgba(255,255,255,0.01)", display:"flex", gap:"16px", flexShrink:0 }}>
+        {/* Fuji Policy Status — horizontally scrollable so the treasury address never gets clipped on narrow screens */}
+        <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(255,255,255,0.06)", background:"rgba(255,255,255,0.01)", display:"flex", gap:"16px", flexShrink:0, overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
           {[["Fuji","Avalanche testnet"],["Wallet","User-signed"],["Treasury",TREASURY_ADDRESS],["AI", aiAvailable === false ? "offline (optional)" : aiAvailable === true ? "online" : "optional"]].map(([k,v]) => (
-            <div key={k} style={{ fontSize:"10px", display:"flex", flexDirection:"column", gap:"1px" }}>
+            <div key={k} style={{ fontSize:"10px", display:"flex", flexDirection:"column", gap:"1px", flexShrink:0 }}>
               <span style={{ color:"rgba(255,255,255,0.5)", fontWeight:"600" }}>{k}</span>
-              <span style={{ color:"rgba(255,255,255,0.25)" }}>{v}</span>
+              <span style={{ color:"rgba(255,255,255,0.25)", fontFamily: k === "Treasury" ? "monospace" : undefined }}>{v}</span>
             </div>
           ))}
         </div>
@@ -754,6 +754,11 @@ export default function KaiPlayground() {
         @media (max-width: 767px) {
           .mobile-topbar { display: flex !important; }
           .desktop-only  { display: none !important; }
+
+          /* Op header: title on its own row, tabs + Execute below it —
+             fixes Execute being clipped off the right edge on narrow screens */
+          .op-header { flex-direction: column !important; align-items: stretch !important; }
+          .op-header-actions { justify-content: space-between !important; }
 
           /* Sidebar / ops panel become full-width when active */
           .panel-sidebar, .panel-ops {
