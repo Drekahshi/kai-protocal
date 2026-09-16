@@ -27,6 +27,7 @@ const YBOB_TOKEN = ECOSYSTEM_TOKENS.find(t => t.symbol === 'yBOB');
 const YBOB_ADDR  = YBOB_TOKEN?.address as `0x${string}` | undefined;
 const YBOB_DEC   = YBOB_TOKEN?.decimals ?? 18;
 const ACCENT = '#10b981';
+const PAYSTACK = '#3b82f6';
 const LINE = 'rgba(255,255,255,0.08)';
 const SURFACE = 'rgba(255,255,255,0.03)';
 const MUTED = 'rgba(255,255,255,0.50)';
@@ -347,20 +348,23 @@ export default function CoNNFTMarketplace() {
         </div>
       )}
 
-      {/* Paystack email input */}
-      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${LINE}` }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#fff', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Mail size={14} color={ACCENT} /> Prefer card, bank, or M-Pesa via Paystack?
+      {/* Paystack — highlighted so the no-crypto payment path is easy to spot */}
+      <div style={{
+        marginTop: 20, padding: '16px', borderRadius: 14,
+        background: 'rgba(59,130,246,0.08)', border: `1px solid rgba(59,130,246,0.35)`,
+      }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#fff', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 7 }}>
+          <Mail size={15} color={PAYSTACK} /> No crypto? Pay with card, bank, or M-Pesa via Paystack
         </p>
-        <p style={{ fontSize: 12, color: MUTED, margin: '0 0 10px' }}>
-          Enter your email once, then tap "Pay with Paystack" on any NFT below. Rate: 1 yBOB ≈ KES 130.
+        <p style={{ fontSize: 12, color: MUTED, margin: '0 0 12px' }}>
+          Enter your email once, then tap <strong style={{ color: '#fff' }}>Pay with Paystack</strong> on any NFT below. Rate: 1 yBOB ≈ KES 130.
         </p>
         <input
           type="email"
           placeholder="you@email.com"
           value={payEmail}
           onChange={e => setPayEmail(e.target.value)}
-          style={{ width: '100%', maxWidth: 280, background: 'transparent', border: `1px solid ${payEmail && !emailValid ? '#f87171' : LINE}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: '#fff', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+          style={{ width: '100%', maxWidth: 320, background: 'rgba(0,0,0,0.25)', border: `1px solid ${payEmail && !emailValid ? '#f87171' : 'rgba(59,130,246,0.4)'}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: '#fff', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
         />
       </div>
 
@@ -446,10 +450,10 @@ export default function CoNNFTMarketplace() {
                       title={emailValid ? 'Buy with Paystack' : 'Enter your email above first'}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                        background: 'transparent', border: `1px solid ${LINE}`, color: emailValid ? '#fff' : DIM,
-                        padding: '9px 12px', borderRadius: 9, fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                        background: PAYSTACK, border: 'none', color: '#fff',
+                        padding: '10px 12px', borderRadius: 9, fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
                         cursor: (!emailValid || payBusy) ? 'not-allowed' : 'pointer',
-                        opacity: emailValid ? 1 : 0.6,
+                        opacity: (!emailValid || (payBusy && !paying)) ? 0.5 : 1,
                       }}>
                       <CreditCard size={13} /> {paying ? 'Opening…' : 'Pay with Paystack'}
                     </button>
