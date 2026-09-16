@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Leaf, ShoppingCart, ExternalLink, RefreshCw, Phone } from 'lucide-react';
+import { ArrowLeft, Leaf, ShoppingCart, ExternalLink, RefreshCw, Mail } from 'lucide-react';
 import { useAccount, useSwitchChain, useWriteContract, useReadContract, usePublicClient } from 'wagmi';
 import { avalancheFuji } from 'wagmi/chains';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
@@ -117,11 +117,10 @@ export default function CoNNFTMarketplace() {
   const [cart,         setCart]        = useState<string[]>([]);
   const [refreshKey,   setRefreshKey]  = useState(0);
 
-  // ── M-Pesa state ─────────────────────────────────────────────────────────
-  const [mpesaPhone,   setMpesaPhone]  = useState('');
-  const [mpesaNft,     setMpesaNft]    = useState<typeof NFTS[0] | null>(null);
-  const [mpesaLoading, setMpesaLoading]= useState(false);
-  const [mpesaCheckout,setMpesaCheckout]=useState<string | null>(null); // polling id
+  // ── Paystack state ──────────────────────────────────────────────────────
+  const [payEmail,      setPayEmail]     = useState('');
+  const [payBusy,       setPayBusy]      = useState(false);
+  const [payNft,        setPayNft]       = useState<typeof NFTS[0] | null>(null);
 
   // ── Live yBOB balance ─────────────────────────────────────────────────────
   const { data: yBobBalRaw, refetch: refetchBal } = useReadContract(
@@ -194,71 +193,66 @@ export default function CoNNFTMarketplace() {
     }
   };
 
-  // ── M-Pesa STK Push handler ───────────────────────────────────────────────
-  const handleMpesaBuy = async (nft: typeof NFTS[0]) => {
-    const clean = mpesaPhone.replace(/\D/g, '');
-    if (!/^254[17]\d{8}$/.test(clean)) {
-      setStatusMsg('Enter a valid M-Pesa number: 2547XXXXXXXX or 2541XXXXXXXX');
+  // ── Paystack buy handler ──────────────────────────────────────────────────
+  const handlePaystackBuy = async (nft: typeof NFTS[0]) => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail)) {
+      setStatusMsg('Enter a valid email to pay with Paystack.');
       return;
     }
-    setMpesaLoading(true);
-    setStatusMsg(`Sending KES prompt to ${clean}...`);
+    setPayBusy(true);
+    setPayNft(nft);
+    setStatusMsg(`Opening Paystack checkout for ${nft.name}...`);
     setTxUrl(null);
     try {
-      const res = await fetch('/api/mpesa/stk', {
+      const reference = `NFT-${nft.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const res = await fetch('/api/paystack/initiate', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: clean, nftId: nft.id, nftName: nft.name, priceYbob: nft.price }),
+        body: JSON.stringify({
+          email:     payEmail,
+          priceUsd:  nft.price,
+          reference,
+          nftId:     nft.id,
+          nftName:   nft.name,
+          wallet:    address,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'STK push failed');
-      setMpesaCheckout(data.checkoutRequestId);
-      setMpesaNft(nft);
-      setStatusMsg(`${data.message ?? `Check your phone - enter M-Pesa PIN for KES ${data.amountKes}`}`);
+      if (!res.ok) throw new Error(data.error || 'Paystack initiate failed');
+
+      window.open(data.authorizationUrl, '_blank');
+      setStatusMsg(`Complete payment in the Paystack tab — KES ${data.amountKes?.toLocaleString?.() ?? ''} (${nft.price} yBOB). Ref: ${data.reference}`);
+
+      // Poll /api/paystack/verify every 5s for up to 90s
+      let attempts = 0;
+      const id = setInterval(async () => {
+        attempts++;
+        try {
+          const r    = await fetch(`/api/paystack/verify?reference=${data.reference}`);
+          const poll = await r.json();
+          if (poll.status === 'success') {
+            clearInterval(id);
+            setPurchased(prev => [...prev, nft.id]);
+            setStatusMsg(`Paystack payment confirmed! Paid KES ${poll.amountKes?.toLocaleString?.()}. Ref: ${poll.reference}`);
+            setPayNft(null);
+          } else if (poll.status === 'failed' || poll.status === 'abandoned') {
+            clearInterval(id);
+            setStatusMsg(`Paystack payment ${poll.status}.`);
+            setPayNft(null);
+          } else if (attempts >= 18) {
+            clearInterval(id);
+            setStatusMsg('Check your email for Paystack confirmation and transaction receipt.');
+            setPayNft(null);
+          }
+        } catch { /* ignore polling errors */ }
+      }, 5000);
     } catch (e: unknown) {
-      setStatusMsg(`${e instanceof Error ? e.message : 'M-Pesa error'}`);
+      setStatusMsg(`${e instanceof Error ? e.message : 'Paystack error'}`);
+      setPayNft(null);
     } finally {
-      setMpesaLoading(false);
+      setPayBusy(false);
     }
   };
-
-  // ── Poll callback status after STK Push ───────────────────────────────────
-  useEffect(() => {
-    if (!mpesaCheckout || !mpesaNft) return;
-    let attempts = 0;
-    const id = setInterval(async () => {
-      attempts++;
-      try {
-        const res  = await fetch(`/api/mpesa/callback?checkoutRequestId=${mpesaCheckout}`);
-        const data = await res.json();
-        if (data.status === 'success') {
-          clearInterval(id);
-          setPurchased(prev => [...prev, mpesaNft.id]);
-          setStatusMsg(`M-Pesa payment confirmed! Receipt: ${data.mpesaReceiptNumber ?? 'N/A'}`);
-          setMpesaCheckout(null);
-          setMpesaNft(null);
-        } else if (data.status === 'failed') {
-          clearInterval(id);
-          setStatusMsg(`M-Pesa payment failed: ${data.resultDesc}`);
-          setMpesaCheckout(null);
-        } else if (attempts >= 12) {
-          // 12 × 5s = 60s timeout — query Safaricom directly as fallback
-          clearInterval(id);
-          const qRes  = await fetch('/api/mpesa/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkoutRequestId: mpesaCheckout }) });
-          const qData = await qRes.json();
-          if (qData.success) {
-            setPurchased(prev => [...prev, mpesaNft.id]);
-            setStatusMsg('M-Pesa payment confirmed (via direct query)');
-          } else {
-            setStatusMsg(`Payment status: ${qData.resultDesc ?? 'unknown - check M-Pesa SMS'}`);
-          }
-          setMpesaCheckout(null);
-          setMpesaNft(null);
-        }
-      } catch { /* ignore polling errors */ }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [mpesaCheckout, mpesaNft]);
 
   const filteredNFTs = NFTS.filter((n: typeof NFTS[0]) => {
     if (activeFilter === 'Under 100')  return n.price < 100;
@@ -370,25 +364,25 @@ export default function CoNNFTMarketplace() {
         )}
       </div>
 
-      {/* M-Pesa phone input */}
-      <div style={{ margin: '10px 16px 0', padding: '12px 14px', borderRadius: 12, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: '#22C55E', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Phone size={13} /> Pay with M-Pesa (optional)
+      {/* Paystack email input */}
+      <div style={{ margin: '10px 16px 0', padding: '12px 14px', borderRadius: 12, background: 'rgba(0,184,122,0.06)', border: '1px solid rgba(0,184,122,0.2)' }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#00B87A', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Mail size={13} /> Pay with Paystack
         </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
-            type="tel"
-            placeholder="2547XXXXXXXX"
-            value={mpesaPhone}
-            onChange={e => setMpesaPhone(e.target.value.replace(/[^\d+]/g, ''))}
+            type="email"
+            placeholder="you@email.com"
+            value={payEmail}
+            onChange={e => setPayEmail(e.target.value)}
             style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#fff', outline: 'none', fontFamily: 'monospace' }}
           />
           <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
-            Enter to pay<br />in KES via STK
+            Enter email<br />for Paystack receipt
           </div>
         </div>
         <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', margin: '5px 0 0' }}>
-          Rate: 1 yBOB ≈ KES 130 · STK push sent to your phone
+          Rate: 1 yBOB ≈ KES 130 · M-Pesa / Card / Bank via Paystack
         </p>
       </div>
 
@@ -454,18 +448,18 @@ export default function CoNNFTMarketplace() {
                     {/* yBOB buy */}
                     <button
                       onClick={() => handleBuy(nft)}
-                      disabled={isLoading !== null || mpesaLoading}
+                      disabled={isLoading !== null || payBusy}
                       title="Buy with yBOB token"
                       style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: isLoading !== null ? 'not-allowed' : 'pointer' }}>
                       {isLoading === nft.id ? '...' : ''}
                     </button>
-                    {/* M-Pesa buy */}
+                    {/* Paystack buy */}
                     <button
-                      onClick={() => handleMpesaBuy(nft)}
-                      disabled={mpesaLoading || isLoading !== null || !mpesaPhone.replace(/\D/g,'').match(/^254[17]\d{8}$/)}
-                      title={mpesaPhone ? 'Buy with M-Pesa' : 'Enter M-Pesa number above first'}
-                      style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.35)', color: '#22C55E', padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: (!mpesaPhone || mpesaLoading) ? 'not-allowed' : 'pointer', opacity: !mpesaPhone.replace(/\D/g,'').match(/^254[17]\d{8}$/) ? 0.4 : 1 }}>
-                      {mpesaLoading && mpesaNft?.id === nft.id ? '...' : 'M-Pesa'}
+                      onClick={() => handlePaystackBuy(nft)}
+                      disabled={payBusy || isLoading !== null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail)}
+                      title={payEmail ? 'Buy with Paystack' : 'Enter your email above first'}
+                      style={{ background: 'rgba(0,184,122,0.15)', border: '1px solid rgba(0,184,122,0.35)', color: '#00B87A', padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800, cursor: (!payEmail || payBusy) ? 'not-allowed' : 'pointer', opacity: !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payEmail) ? 0.4 : 1 }}>
+                      {payBusy && payNft?.id === nft.id ? '...' : 'Paystack'}
                     </button>
                   </div>
                 )}
