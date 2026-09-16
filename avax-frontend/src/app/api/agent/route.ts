@@ -4,7 +4,7 @@
  * Body: { message, wallet? }
  *
  * Flow per request:
- *   1. Gemini (gemini-2.5-flash) with a typed function-declaration tool set.
+ *   1. Gemini (gemini-3.6-flash) with a typed function-declaration tool set.
  *   2. If a tool call is requested: read-only data tools run server-side;
  *      sensitive "prepare_*" tools return a deterministic PLAN that is
  *      emitted to the client as an `approval` SSE event — never executed here.
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `You are KAI, a voice-first financial and conservation agent on Avalanche C-Chain (Fuji, chainId 43113).
