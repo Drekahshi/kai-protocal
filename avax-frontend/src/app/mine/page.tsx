@@ -167,8 +167,9 @@ export default function MinePage() {
             Complete tasks to earn <span className="mine-hl">Kai Bar points</span> toward the <span className="mine-hl">KAI airdrop</span>.
           </p>
 
-          <p className="mine-num" style={{ marginTop:18, fontSize:14, fontWeight:500, color:'var(--mine-text)' }}>
-            {displayPts} pts&ensp;·&ensp;{streak}-day streak&ensp;·&ensp;{doneTasks.length}/{TASKS.length} today
+          <p style={{ marginTop:18, fontSize:14, fontWeight:500, color:'var(--mine-text-2)' }}>
+            <span className="mine-num" style={{ fontSize:20, fontWeight:800, color:'var(--mine-text)' }}>{displayPts} pts</span>
+            &ensp;·&ensp;<span className="mine-num">{streak}-day streak</span>&ensp;·&ensp;<span className="mine-num">{doneTasks.length}/{TASKS.length} today</span>
           </p>
 
           <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:26 }}>
@@ -189,7 +190,7 @@ export default function MinePage() {
               {claiming
                 ? <><Clock size={18} style={{ animation:'spin 1s linear infinite' }}/> Processing…</>
                 : claimed
-                  ? <><CheckCircle size={18}/> Claimed · next in <span className="mine-num">{fmt(countdown)}</span></>
+                  ? <><CheckCircle size={18} className="celebrate-pop"/> Claimed · next in <span className="mine-num">{fmt(countdown)}</span></>
                   : <><Gift size={18}/> Claim 10 NVR</>
               }
             </motion.button>
