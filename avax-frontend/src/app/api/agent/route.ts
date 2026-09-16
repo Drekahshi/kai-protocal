@@ -102,7 +102,10 @@ function audit(entry: Record<string, unknown>) {
 async function callGemini(contents: GeminiContent[]) {
   const res = await fetch(GEMINI_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': GEMINI_KEY,
+    },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents,
