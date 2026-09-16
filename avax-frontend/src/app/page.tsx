@@ -153,7 +153,7 @@ export default function Home() {
     + (tokenBals.gami??0)*ESTIMATED_USD_RATES.gami
     + (tokenBals.cents??0)*ESTIMATED_USD_RATES.cents;
   const activeTokenCount = allTokens.filter(b => b.value > 0).length;
-  const balancesLoading = isConnected && tokenData === undefined;
+  const balancesLoading = connected && tokenData === undefined;
   const displayName = mounted ? (profile?.displayName || profile?.name || (address ? `${address.slice(0,6)}…${address.slice(-4)}` : '')) : '';
 
   const askAgent = async () => {
