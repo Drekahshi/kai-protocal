@@ -9,7 +9,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY    || '';
 const GROQ_MODEL   = process.env.GROQ_MODEL      || 'llama-3.1-8b-instant';
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 const GEMINI_KEY   = process.env.GEMINI_API_KEY  || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL    || 'gemini-3.6-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL    || 'gemini-1.5-flash';
 
 // ── Built-in KAI knowledge base (fallback when all LLMs are offline) ──────────
 const KAI_KB: { match: RegExp; answer: string }[] = [

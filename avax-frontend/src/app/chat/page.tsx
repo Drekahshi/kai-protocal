@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import VoiceMicButton from '@/components/VoiceMicButton';
 import { formatChat } from '@/lib/formatChat';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
@@ -408,6 +409,14 @@ export default function AVAXChatPage() {
               padding: '4px 0',
               caretColor: '#10b981',
             }}
+          />
+          <VoiceMicButton
+            onCommand={(voiceText) => {
+              send(voiceText);
+            }}
+            disabled={loading}
+            size="md"
+            showVoiceToggle={false}
           />
           <motion.button
             whileHover={{ scale: 1.08 }}

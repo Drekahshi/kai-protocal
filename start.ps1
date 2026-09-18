@@ -13,7 +13,7 @@ Write-Host "===============================================" -ForegroundColor Cy
 Write-Host ""
 
 # -- 1. Set up Python venv if needed ------------------------
-$AgentDir = Join-Path $Root "ai-agent"
+$AgentDir = if (Test-Path (Join-Path $Root "ai-agent")) { Join-Path $Root "ai-agent" } else { $Root }
 $VenvPy   = Join-Path $AgentDir ".venv\Scripts\python.exe"
 $VenvPip  = Join-Path $AgentDir ".venv\Scripts\pip.exe"
 

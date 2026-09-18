@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `You are KAI, a voice-first financial and conservation agent on Avalanche C-Chain (Fuji, chainId 43113).

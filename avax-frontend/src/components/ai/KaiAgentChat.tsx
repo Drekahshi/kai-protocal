@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import AgentProposalCard, { AgentProposal } from '@/components/AgentProposalCard';
+import VoiceMicButton from '@/components/VoiceMicButton';
 import { ECOSYSTEM_TOKENS } from '@/lib/tokens';
 import { VAULT_ADDRESSES } from '@/lib/addresses';
 import { formatChat } from '@/lib/formatChat';
@@ -423,6 +424,14 @@ export default function KaiAgentChat({ onClose }: KaiAgentChatProps) {
                 e.target.style.borderColor = 'rgba(16,185,129,0.18)';
                 e.target.style.boxShadow = 'none';
               }}
+            />
+            <VoiceMicButton
+              onCommand={(voiceText) => {
+                send(voiceText);
+              }}
+              disabled={loading}
+              size="md"
+              showVoiceToggle={true}
             />
             <button
               onClick={() => send()}

@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import BottomNav from '@/components/shared/BottomNav';
 const AIChatOverlay = dynamic(() => import('@/components/ai/AIChatOverlay'), { ssr: false });
+const GlobalVoiceAssistant = dynamic(() => import('@/components/GlobalVoiceAssistant'), { ssr: false });
 
 const FULLSCREEN_ROUTES = ['/nuvari', '/ai', '/chat', '/voice'];
 /* Exact matches only — '/kai' would otherwise prefix-match '/kai-bar' */
@@ -19,6 +20,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       <div style={{ width: '100%', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
         {children}
         <AIChatOverlay />
+        <GlobalVoiceAssistant />
       </div>
     );
   }
@@ -31,6 +33,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       </div>
       <BottomNav />
       <AIChatOverlay />
+      <GlobalVoiceAssistant />
     </>
   );
 }

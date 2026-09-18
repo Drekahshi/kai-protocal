@@ -24,28 +24,85 @@ const VAULT_ADDRESSES: Record<string, `0x${string}`> = {
 
 // ── Needle FastAPI URL ────────────────────────────────────────────────────────
 const NEEDLE_API = process.env.NEEDLE_API_URL ?? 'http://127.0.0.1:8000';
+const GEMINI_KEY = process.env.GEMINI_API_KEY ?? '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-1.5-flash';
+
+interface AIIntentResult {
+  intent: string;
+  params?: Record<string, string>;
+  spoken_reply?: string;
+  display_text?: string;
+}
 
 /**
  * Try to classify the message via the Needle FastAPI (/needle/intent).
  * Returns null when the Needle server is unreachable (graceful fallback).
  */
-async function callNeedleIntent(message: string): Promise<{
-  intent: string;
-  params: Record<string, string>;
-  spoken_reply: string;
-} | null> {
+async function callNeedleIntent(message: string): Promise<AIIntentResult | null> {
   try {
     const res = await fetch(`${NEEDLE_API}/needle/intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
-      signal: AbortSignal.timeout(5000), // 5-second timeout
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
     const data = await res.json();
     return data?.intent ?? null;
   } catch {
-    // Needle server offline — fall through to rule-based engine
+    return null;
+  }
+}
+
+/**
+ * Classify user intent using Google Gemini 3.6 Flash.
+ */
+async function callGeminiIntent(message: string): Promise<AIIntentResult | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const prompt = `You are the KAI Nuvari DeFi AI Agent on Avalanche Fuji C-Chain.
+Classify the user intent into one of: "transfer", "deposit", "pay_kes", "navigate", "balance", "query".
+Available tokens: NVR, yBOB, YTOKEN, YGOLD, GAMI, CENTS, AVAX.
+Available routes: /vaults, /pools, /hub, /pay, /sme, /saving, /mine, /profile, /insurance, /pension, /trust.
+
+User input: "${message}"
+
+Respond strictly with valid JSON without markdown wrapping:
+{
+  "intent": "transfer" | "deposit" | "pay_kes" | "navigate" | "balance" | "query",
+  "params": {
+    "token": "NVR",
+    "amount": "10",
+    "to": "0x...",
+    "phone": "07...",
+    "page": "/vaults"
+  },
+  "spoken_reply": "Friendly concise spoken answer",
+  "display_text": "Markdown formatted summary"
+}`;
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+          },
+        }),
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!raw) return null;
+    const clean = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    return JSON.parse(clean);
+  } catch {
     return null;
   }
 }
@@ -62,12 +119,15 @@ export async function POST(req: Request) {
     const lower = text.toLowerCase();
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  STEP 1: Try Needle AI (14 MB engine via FastAPI)
+    //  STEP 1: Try Needle AI or Gemini 3.6 Flash
     // ══════════════════════════════════════════════════════════════════════════
-    const needleResult = await callNeedleIntent(text);
+    let aiResult = await callNeedleIntent(text);
+    if (!aiResult) {
+      aiResult = await callGeminiIntent(text);
+    }
 
-    if (needleResult && needleResult.intent && needleResult.intent !== 'query') {
-      const { intent, params, spoken_reply } = needleResult;
+    if (aiResult && aiResult.intent && aiResult.intent !== 'query') {
+      const { intent, params, spoken_reply, display_text } = aiResult as any;
 
       switch (intent) {
         case 'navigate': {
@@ -300,8 +360,8 @@ export async function POST(req: Request) {
     // Default — hand off to /api/chat (RAG + Needle)
     return NextResponse.json({
       intentType: 'QUERY',
-      spokenReply: needleResult?.spoken_reply ?? 'Let me check the KAI knowledge base for you.',
-      displayText: '',
+      spokenReply: (aiResult as any)?.spoken_reply ?? 'Let me check the KAI knowledge base for you.',
+      displayText: (aiResult as any)?.display_text ?? '',
     });
 
   } catch (error: unknown) {

@@ -7,9 +7,6 @@
  *   Swap      — swaps through KaiAMM router (real ERC-20 transfer on Fuji)
  *   Liquidity — add / remove liquidity from any KaiPool pair
  *   Info      — pool reserves, spot prices, LP balances
- *
- * The interactive bubble canvas + PoolDrawer remain for discovery.
- * Contract addresses from src/lib/defiAddresses.json.
  */
 
 import React, { useState, useCallback } from "react";
@@ -20,7 +17,7 @@ import {
 } from "wagmi";
 import { avalancheFuji } from "wagmi/chains";
 import { parseUnits, formatUnits, maxUint256 } from "viem";
-import { ArrowDownUp, Droplets, BarChart3, ExternalLink, RefreshCw, ArrowLeft, TrendingUp, Wallet } from "lucide-react";
+import { ArrowDownUp, Droplets, BarChart3, ExternalLink, RefreshCw, ArrowLeft, TrendingUp, Wallet, PlusCircle } from "lucide-react";
 import WalletConnectModal from "@/components/WalletConnectModal";
 import CryptoBubblesCanvas, { KAI_TOKENS } from "@/components/pools/CryptoBubblesCanvas";
 import type { PoolToken } from "@/components/pools/CryptoBubblesCanvas";
@@ -28,28 +25,29 @@ import type { StakePosition } from "@/components/pools/PoolDrawer";
 import PoolDrawer from "@/components/pools/PoolDrawer";
 import PoolStatsCard from "@/components/pools/PoolStatsCard";
 import { useAnimNumber } from "@/lib/useAnimNumber";
-import { ECOSYSTEM_TOKENS } from "@/lib/tokens";
+import { useEcosystemBalances } from "@/hooks/useEcosystemBalances";
+import { ECOSYSTEM_TOKENS, TokenConfig } from "@/lib/tokens";
 import { ERC20_ABI } from "@/lib/erc20abi";
 import { POOL_ABI, AMM_ABI } from "@/lib/defiAbis";
 import defiAddrs from "@/lib/defiAddresses.json";
+import { importTokenToMetaMask, requestFaucetTokens } from "@/lib/metamask";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 type Addr = `0x${string}`;
 
 function tokenAddr(sym: string): Addr | null {
-  return (ECOSYSTEM_TOKENS.find(t => t.symbol === sym)?.address ?? null) as Addr | null;
+  return (ECOSYSTEM_TOKENS.find(t => t.symbol.toUpperCase() === sym.toUpperCase())?.address ?? null) as Addr | null;
 }
 function tokenDec(sym: string): number {
-  return ECOSYSTEM_TOKENS.find(t => t.symbol === sym)?.decimals ?? 18;
+  return ECOSYSTEM_TOKENS.find(t => t.symbol.toUpperCase() === sym.toUpperCase())?.decimals ?? 18;
 }
 function tokenColor(sym: string): string {
-  return ECOSYSTEM_TOKENS.find(t => t.symbol === sym)?.color ?? "#10b981";
+  return ECOSYSTEM_TOKENS.find(t => t.symbol.toUpperCase() === sym.toUpperCase())?.color ?? "#10b981";
 }
 function tokenEmoji(sym: string): string {
-  return ECOSYSTEM_TOKENS.find(t => t.symbol === sym)?.emoji ?? "";
+  return ECOSYSTEM_TOKENS.find(t => t.symbol.toUpperCase() === sym.toUpperCase())?.emoji ?? "";
 }
 
-// ─── Pool definitions from defiAddresses.json ─────────────────────────────────
 interface PoolDef { pair: string; address: string | null; tokenA: string | null; tokenB: string | null }
 const POOLS: PoolDef[] = (defiAddrs.pools as PoolDef[]).length > 0
   ? (defiAddrs.pools as PoolDef[])
@@ -61,7 +59,6 @@ const POOLS: PoolDef[] = (defiAddrs.pools as PoolDef[]).length > 0
 
 const AMM_ADDR = (defiAddrs.amm?.address ?? null) as Addr | null;
 const EXPLORER = defiAddrs.explorerBase ?? "https://testnet.snowtrace.io";
-
 // ─── Swap token list / pair metadata ─────────────────────────────────────────
 const SWAP_TOKENS = ["NVR","yBOB","YTOKEN","YGOLD","GAMI","CENTS"];
 
@@ -99,14 +96,16 @@ export default function PoolsPage() {
   const { switchChainAsync }       = useSwitchChain();
   const { writeContractAsync }     = useWriteContract();
   const publicClient               = usePublicClient();
+  const { tokenBalances, refresh: refreshBalances } = useEcosystemBalances();
 
   const [showModal,        setShowModal]        = useState(false);
   const [activeTab,        setActiveTab]        = useState<"swap"|"liquidity"|"info">("swap");
   const [statusMsg,        setStatusMsg]        = useState("");
+  const [statusType,       setStatusType]       = useState<"success"|"error"|"info">("info");
   const [txUrl,            setTxUrl]            = useState<string | null>(null);
   const [busy,             setBusy]             = useState(false);
+  const [faucetLoading,    setFaucetLoading]    = useState<string | null>(null);
 
-  // Bubble canvas state (kept for discovery UX)
   const [selectedToken,    setSelectedToken]    = useState<PoolToken | null>(null);
   const [stakedPositions,  setStakedPositions]  = useState<Record<string, StakePosition>>({});
 
@@ -116,7 +115,9 @@ export default function PoolsPage() {
   const [swapAmt,   setSwapAmt]   = useState("");
   const [flipKey,   setFlipKey]   = useState(0);
 
-  // ── Valid output tokens for each input (based on deployed pools) ──────────
+  const walletBalIn  = tokenBalances[swapIn] ?? 0;
+  const walletBalOut = tokenBalances[swapOut] ?? 0;
+
   const validOutputTokens = (tokenIn: string): string[] => {
     const inAddr = tokenAddr(tokenIn);
     if (!inAddr) return [];
@@ -131,10 +132,8 @@ export default function PoolsPage() {
     });
   };
 
-  // When swapIn changes, auto-correct swapOut to a valid partner
   const handleSwapInChange = (newIn: string) => {
     setSwapIn(newIn);
-    setSwapAmt("");
     const valid = validOutputTokens(newIn);
     if (valid.length > 0 && !valid.includes(swapOut)) {
       setSwapOut(valid[0]);
@@ -149,7 +148,7 @@ export default function PoolsPage() {
   };
 
   // ── Resolve which pool serves swapIn → swapOut ────────────────────────────
-  const getRoutingPool = (tokenIn: string, tokenOut: string) => {
+  const getRoutingPool = (tokenIn: string, tokenOut: string): PoolDef | null => {
     const inAddr  = tokenAddr(tokenIn);
     const outAddr = tokenAddr(tokenOut);
     if (!inAddr || !outAddr) return null;
@@ -186,7 +185,6 @@ export default function PoolsPage() {
         },
   );
 
-  // Derive display values from the on-chain quote
   const quoteFormatted = quoteRaw
     ? parseFloat(formatUnits(quoteRaw as bigint, tokenDec(swapOut))).toFixed(6)
     : "";
@@ -203,32 +201,24 @@ export default function PoolsPage() {
   const [liqMode,  setLiqMode]  = useState<"add"|"remove">("add");
   const [lpAmt,    setLpAmt]    = useState("");
 
-  // ── Read pool reserves ────────────────────────────────────────────────────
-  const poolContracts = POOLS.filter(p => p.address).flatMap(p => [
-    { address: p.address as Addr, abi: POOL_ABI, functionName: "reserveA" as const, args: [] as const },
-    { address: p.address as Addr, abi: POOL_ABI, functionName: "reserveB" as const, args: [] as const },
-    { address: p.address as Addr, abi: POOL_ABI, functionName: "totalSupply" as const, args: [] as const },
+  const poolContractCalls = POOLS.filter(p => p.address).flatMap(p => [
+    { address: p.address as Addr, abi: POOL_ABI, functionName: "reserveA" as const, args: [] },
+    { address: p.address as Addr, abi: POOL_ABI, functionName: "reserveB" as const, args: [] },
+    { address: p.address as Addr, abi: POOL_ABI, functionName: "totalSupply" as const, args: [] },
   ]);
-  const lpBalContracts = POOLS.filter(p => p.address && address).map(p => ({
+
+  const lpBalanceCalls = POOLS.filter(p => p.address).map(p => ({
     address: p.address as Addr, abi: POOL_ABI, functionName: "balanceOf" as const,
     args: [address ?? "0x0000000000000000000000000000000000000000" as Addr],
   }));
 
-  const { data: poolData,  refetch: refetchPools } = useReadContracts({ contracts: poolContracts,   query: { enabled: true } });
-  const { data: lpBalData, refetch: refetchLpBals} = useReadContracts({ contracts: lpBalContracts,  query: { enabled: !!address } });
+  const { data: poolData, refetch: refetchPools } = useReadContracts({ contracts: poolContractCalls, query: { enabled: poolContractCalls.length > 0 } });
+  const { data: lpBalData, refetch: refetchLp }   = useReadContracts({ contracts: lpBalanceCalls,   query: { enabled: lpBalanceCalls.length > 0 && !!address } });
 
-  const handleRefresh = useCallback(async () => {
-    await Promise.allSettled([refetchPools(), refetchLpBals()]);
-  }, [refetchPools, refetchLpBals]);
-
-  // Parse pool data: 3 values per pool (reserveA, reserveB, totalSupply)
   const poolInfo = POOLS.filter(p => p.address).map((p, i) => {
     const base = i * 3;
     return {
       pair:        p.pair,
-      address:     p.address as Addr,
-      tokenA:      p.tokenA as string,
-      tokenB:      p.tokenB as string,
       reserveA:    (poolData?.[base]?.result   as bigint | undefined) ?? 0n,
       reserveB:    (poolData?.[base+1]?.result as bigint | undefined) ?? 0n,
       totalSupply: (poolData?.[base+2]?.result as bigint | undefined) ?? 0n,
@@ -236,8 +226,50 @@ export default function PoolsPage() {
     };
   });
 
+  const handleRefresh = useCallback(async () => {
+    await Promise.allSettled([refetchPools(), refetchLp(), refreshBalances()]);
+  }, [refetchPools, refetchLp, refreshBalances]);
+
+  const handleImport = async (sym: string) => {
+    const t = ECOSYSTEM_TOKENS.find(x => x.symbol === sym);
+    if (!t) return;
+    try {
+      setStatusType("info");
+      setStatusMsg(`Importing ${sym} into MetaMask...`);
+      await importTokenToMetaMask(t);
+      setStatusType("success");
+      setStatusMsg(`✓ Added ${sym} to MetaMask!`);
+    } catch (e: any) {
+      if (e?.code !== 4001) {
+        setStatusType("error");
+        setStatusMsg(e?.message || "Import failed");
+      }
+    }
+  };
+
+  const handleMint = async (sym: string) => {
+    if (!isConnected || !address) { setShowModal(true); return; }
+    setFaucetLoading(sym);
+    setStatusType("info");
+    setStatusMsg(`Minting 100 ${sym} on Fuji testnet...`);
+    setTxUrl(null);
+    try {
+      const res = await requestFaucetTokens(address, sym, 100);
+      setStatusType("success");
+      setStatusMsg(`🎉 Minted 100 ${sym} to your wallet!`);
+      if (res.txHash) setTxUrl(`https://testnet.snowtrace.io/tx/${res.txHash}`);
+      await handleRefresh();
+    } catch (e: any) {
+      setStatusType("error");
+      setStatusMsg(`Mint failed: ${e?.message || "Error"}`);
+    } finally {
+      setFaucetLoading(null);
+    }
+  };
+
   // Derived market overview
   const deployedCount = POOLS.filter(p => p.address).length;
+  const isNotDeployed = deployedCount === 0;
 
   const openDrawerForPair = (pair: string) => {
     const meta = PAIR_TO_TOKEN[pair];
@@ -267,119 +299,133 @@ export default function PoolsPage() {
   // ── Swap handler ──────────────────────────────────────────────────────────
   const handleSwap = async () => {
     if (!isConnected || !address) { setShowModal(true); return; }
-    if (!AMM_ADDR) { setStatusMsg("AMM not deployed - run deploy-defi.ts first."); return; }
+    if (!AMM_ADDR) {
+      setStatusType("error");
+      setStatusMsg("AMM contract address is not configured.");
+      return;
+    }
     const inAddr  = tokenAddr(swapIn);
     const outAddr = tokenAddr(swapOut);
-    if (!inAddr || !outAddr) { setStatusMsg("Token address not found."); return; }
+    if (!inAddr || !outAddr) {
+      setStatusType("error");
+      setStatusMsg("Token address not found.");
+      return;
+    }
     const amt = parseFloat(swapAmt);
-    if (!amt || amt <= 0) { setStatusMsg("Enter swap amount."); return; }
+    if (!amt || amt <= 0) {
+      setStatusType("error");
+      setStatusMsg("Please enter an amount to swap.");
+      return;
+    }
+
+    if (amt > walletBalIn) {
+      setStatusType("error");
+      setStatusMsg(`Insufficient ${swapIn} balance (you have ${walletBalIn.toFixed(2)}). Click 'Mint 100 ${swapIn}' first.`);
+      return;
+    }
 
     const amtWei    = parseUnits(swapAmt, tokenDec(swapIn));
     const minOutWei = parseUnits(minOut || "0", tokenDec(swapOut));
 
-    setBusy(true); setStatusMsg(""); setTxUrl(null);
-    try {
-      await switchChainAsync({ chainId: avalancheFuji.id });
+    setBusy(true);
+    setStatusType("info");
+    setStatusMsg("");
+    setTxUrl(null);
 
-      // Approve tokenIn to AMM
-      setStatusMsg(`Approving ${swapIn} for AMM router...`);
+    try {
+      if (switchChainAsync) {
+        try { await switchChainAsync({ chainId: avalancheFuji.id }); } catch {}
+      }
+
+      // Step 1: Approve
+      setStatusMsg(`Step 1/2: Approving ${swapIn} for AMM Router...`);
       const appTx = await writeContractAsync({
-        address: inAddr, abi: ERC20_ABI,
-        functionName: "approve", args: [AMM_ADDR, maxUint256],
+        address: inAddr,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [AMM_ADDR, maxUint256],
         chainId: avalancheFuji.id,
       });
-      await publicClient?.waitForTransactionReceipt({ hash: appTx });
 
-      // Swap
-      setStatusMsg(`Swapping ${swapAmt} ${swapIn} -> ${swapOut}...`);
+      setStatusMsg("Waiting for approval confirmation...");
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: appTx });
+      }
+
+      // Step 2: Swap
+      setStatusMsg(`Step 2/2: Swapping ${swapAmt} ${swapIn} for ${swapOut}...`);
       const swapTx = await writeContractAsync({
-        address: AMM_ADDR, abi: AMM_ABI,
+        address: AMM_ADDR,
+        abi: AMM_ABI,
         functionName: "swap",
         args: [inAddr, outAddr, amtWei, minOutWei],
         chainId: avalancheFuji.id,
       });
+
       setTxUrl(`${EXPLORER}/tx/${swapTx}`);
-      setStatusMsg(`Swapped ${swapAmt} ${swapIn} -> ${swapOut}! Tx: ${swapTx.slice(0,14)}...`);
+      setStatusType("success");
+      setStatusMsg(`🎉 Successfully swapped ${swapAmt} ${swapIn} for ${swapOut}! Tx: ${swapTx.slice(0, 14)}...`);
       setSwapAmt("");
       await handleRefresh();
     } catch (e: unknown) {
-      setStatusMsg(`${e instanceof Error ? e.message.slice(0, 120) : "Swap failed"}`);
+      const msg = e instanceof Error ? e.message : "Swap failed";
+      setStatusType("error");
+      if (msg.includes("rejected") || msg.includes("User denied")) {
+        setStatusMsg("Swap cancelled in wallet.");
+      } else {
+        setStatusMsg(`${msg.slice(0, 130)}`);
+      }
     } finally {
       setBusy(false);
     }
   };
 
-  // ── Add liquidity ─────────────────────────────────────────────────────────
+  // ── Add Liquidity ─────────────────────────────────────────────────────────
   const handleAddLiquidity = async () => {
     if (!isConnected || !address) { setShowModal(true); return; }
-    if (!AMM_ADDR) { setStatusMsg("AMM not deployed."); return; }
+    if (!AMM_ADDR) { setStatusType("error"); setStatusMsg("AMM not deployed."); return; }
     const pool = POOLS.find(p => p.pair === liqPool);
-    if (!pool?.tokenA || !pool?.tokenB) { setStatusMsg("Pool not deployed."); return; }
+    if (!pool?.tokenA || !pool?.tokenB) { setStatusType("error"); setStatusMsg("Pool not deployed."); return; }
     const symA = SWAP_TOKENS.find(s => tokenAddr(s) === pool.tokenA) ?? "";
     const symB = SWAP_TOKENS.find(s => tokenAddr(s) === pool.tokenB) ?? "";
     const amtA = parseUnits(liqAmtA || "0", tokenDec(symA));
     const amtB = parseUnits(liqAmtB || "0", tokenDec(symB));
-    if (amtA === 0n || amtB === 0n) { setStatusMsg("Enter both amounts."); return; }
+    if (amtA === 0n || amtB === 0n) { setStatusType("error"); setStatusMsg("Enter both token amounts."); return; }
 
-    setBusy(true); setStatusMsg(""); setTxUrl(null);
+    setBusy(true); setStatusType("info"); setStatusMsg(""); setTxUrl(null);
     try {
-      await switchChainAsync({ chainId: avalancheFuji.id });
+      if (switchChainAsync) {
+        try { await switchChainAsync({ chainId: avalancheFuji.id }); } catch {}
+      }
       setStatusMsg(`Approving ${symA}...`);
       const a1 = await writeContractAsync({ address: pool.tokenA as Addr, abi: ERC20_ABI, functionName: "approve", args: [AMM_ADDR, maxUint256], chainId: avalancheFuji.id });
-      await publicClient?.waitForTransactionReceipt({ hash: a1 });
+      if (publicClient) await publicClient.waitForTransactionReceipt({ hash: a1 });
+
       setStatusMsg(`Approving ${symB}...`);
       const a2 = await writeContractAsync({ address: pool.tokenB as Addr, abi: ERC20_ABI, functionName: "approve", args: [AMM_ADDR, maxUint256], chainId: avalancheFuji.id });
-      await publicClient?.waitForTransactionReceipt({ hash: a2 });
+      if (publicClient) await publicClient.waitForTransactionReceipt({ hash: a2 });
+
       setStatusMsg(`Adding liquidity to ${liqPool} pool...`);
       const liqTx = await writeContractAsync({
         address: AMM_ADDR, abi: AMM_ABI, functionName: "addLiquidity",
         args: [pool.tokenA as Addr, pool.tokenB as Addr, amtA, amtB, 0n],
         chainId: avalancheFuji.id,
       });
+
       setTxUrl(`${EXPLORER}/tx/${liqTx}`);
-      setStatusMsg(`Liquidity added to ${liqPool}! You received LP tokens.`);
+      setStatusType("success");
+      setStatusMsg(`🎉 Added liquidity to ${liqPool}!`);
       setLiqAmtA(""); setLiqAmtB("");
       await handleRefresh();
     } catch (e: unknown) {
-      setStatusMsg(`${e instanceof Error ? e.message.slice(0, 120) : "Failed"}`);
+      const msg = e instanceof Error ? e.message : "Failed";
+      setStatusType("error");
+      setStatusMsg(msg.slice(0, 120));
     } finally {
       setBusy(false);
     }
   };
 
-  // ── Remove liquidity ──────────────────────────────────────────────────────
-  const handleRemoveLiquidity = async () => {
-    if (!isConnected || !address) { setShowModal(true); return; }
-    if (!AMM_ADDR) { setStatusMsg("AMM not deployed."); return; }
-    const pool = POOLS.find(p => p.pair === liqPool);
-    if (!pool?.address) { setStatusMsg("Pool not deployed."); return; }
-    const lpWei = parseUnits(lpAmt || "0", 18);
-    if (lpWei === 0n) { setStatusMsg("Enter LP amount."); return; }
-
-    setBusy(true); setStatusMsg(""); setTxUrl(null);
-    try {
-      await switchChainAsync({ chainId: avalancheFuji.id });
-      setStatusMsg("Approving LP tokens...");
-      const a1 = await writeContractAsync({ address: pool.address as Addr, abi: POOL_ABI, functionName: "approve", args: [AMM_ADDR, maxUint256], chainId: avalancheFuji.id });
-      await publicClient?.waitForTransactionReceipt({ hash: a1 });
-      setStatusMsg(`Removing ${lpAmt} LP from ${liqPool}...`);
-      const remTx = await writeContractAsync({
-        address: AMM_ADDR, abi: AMM_ABI, functionName: "removeLiquidity",
-        args: [pool.tokenA as Addr, pool.tokenB as Addr, lpWei, 0n, 0n],
-        chainId: avalancheFuji.id,
-      });
-      setTxUrl(`${EXPLORER}/tx/${remTx}`);
-      setStatusMsg(`Removed liquidity from ${liqPool}!`);
-      setLpAmt("");
-      await handleRefresh();
-    } catch (e: unknown) {
-      setStatusMsg(`${e instanceof Error ? e.message.slice(0, 120) : "Failed"}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const isNotDeployed = !defiAddrs.deployedAt;
 
   return (
     <main className="p-4 pt-6 pb-28 flex flex-col gap-5 relative max-w-2xl mx-auto">
@@ -390,8 +436,8 @@ export default function PoolsPage() {
           <ArrowLeft size={18} color="#10b981" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-black text-white m-0">KAI Pools & AMM</h1>
-          <p className="text-xs text-white/45 mt-0.5">x*y=k AMM · Real ERC-20 swaps · Fuji C-Chain</p>
+          <h1 className="text-2xl font-black text-white m-0">KAI Pools &amp; AMM</h1>
+          <p className="text-xs text-white/45 mt-0.5">Automated Market Maker · Avalanche Fuji C-Chain</p>
         </div>
         <button onClick={handleRefresh} className="p-2 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:bg-white/10 transition-all active:scale-90" aria-label="Refresh pool data">
           <RefreshCw size={15} color="#10b981" className={busy ? "animate-spin" : ""} />
@@ -414,11 +460,19 @@ export default function PoolsPage() {
         </div>
       )}
 
-      {/* Status */}
+      {/* Status Message */}
       {statusMsg && (
-        <div style={{           background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", padding: "12px 14px", borderRadius: 12, fontSize: 12, color: "#fff" }}>
-          {statusMsg}
-          {txUrl && <a href={txUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, color: "#60a5fa", display: "inline-flex", alignItems: "center", gap: 4 }}>Snowtrace <ExternalLink size={11} /></a>}
+        <div style={{
+          background: statusType === "success" ? "rgba(34,197,94,0.1)" : statusType === "error" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)",
+          border: `1px solid ${statusType === "success" ? "rgba(34,197,94,0.3)" : statusType === "error" ? "rgba(239,68,68,0.3)" : "rgba(59,130,246,0.3)"}`,
+          padding: "12px 14px", borderRadius: 12, fontSize: 12, color: "#fff", display: "flex", flexDirection: "column", gap: 4,
+        }}>
+          <div>{statusMsg}</div>
+          {txUrl && (
+            <a href={txUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 700 }}>
+              View Transaction on Snowtrace <ExternalLink size={11} />
+            </a>
+          )}
         </div>
       )}
 
@@ -470,8 +524,8 @@ export default function PoolsPage() {
       <div className="flex gap-2 bg-black/20 p-1 rounded-xl">
         {([["swap", "Swap", ArrowDownUp], ["liquidity", "Liquidity", Droplets], ["info", "Info", BarChart3]] as const).map(([id, label, Icon]) => (
           <button key={id} onClick={() => { setActiveTab(id); setStatusMsg(""); setTxUrl(null); }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === id ? "bg-[#10b981] text-white shadow-lg shadow-[#10b981]/30" : "text-white/50 hover:text-white"}`}>
-            <Icon size={13} />{label}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === id ? "bg-[#10b981] text-white shadow-lg shadow-[#10b981]/30" : "text-white/50 hover:text-white"}`}>
+            <Icon size={14} />{label}
           </button>
         ))}
       </div>
@@ -481,63 +535,109 @@ export default function PoolsPage() {
         <div className="glass rounded-2xl p-5" style={{ border: "1px solid rgba(16,185,129,0.2)" }}>
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-bold text-white/40 uppercase tracking-wider">Swap Tokens via KaiAMM</p>
-            {routingPool?.address && (
+            {routingPool?.address ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[#34d399]/30 bg-[#34d399]/10 px-2.5 py-1 text-[10px] font-bold text-[#34d399]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" />
                 routed via {routingPool.pair}
               </span>
+            ) : (
+              <span className="text-xs text-[#34D399] font-semibold">Fuji C-Chain</span>
             )}
           </div>
 
           {/* Token In */}
           <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 14, padding: "12px 16px", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 4 }}>
-            <div className="flex justify-between mb-2">
+            <div className="flex justify-between items-center mb-2">
               <span className="text-xs font-bold text-white/40 uppercase tracking-wide">You Pay</span>
-              <span className="text-xs text-white/30">Available pools: NVR-yBOB · YTOKEN-YGOLD · GAMI-CENTS</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white/60">Bal: {walletBalIn.toFixed(2)} {swapIn}</span>
+                <button
+                  onClick={() => setSwapAmt(walletBalIn > 0 ? walletBalIn.toFixed(4) : "10")}
+                  className="text-xs text-[#10b981] font-bold bg-transparent border-0 cursor-pointer p-0">
+                  MAX
+                </button>
+              </div>
             </div>
             <div className="flex items-center gap-3">
-              <input type="number" value={swapAmt} onChange={e => setSwapAmt(e.target.value)} placeholder="0.00"
-                style={{ background: "transparent", border: "none", outline: "none", fontSize: 28, fontWeight: 900, color: "#fff", flex: 1, fontFamily: "inherit" }} />
-              <select value={swapIn} onChange={e => handleSwapInChange(e.target.value)}
-                style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 10, padding: "6px 10px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              <input
+                type="number"
+                value={swapAmt}
+                onChange={e => setSwapAmt(e.target.value)}
+                placeholder="0.00"
+                style={{ background: "transparent", border: "none", outline: "none", fontSize: 28, fontWeight: 900, color: "#fff", flex: 1, fontFamily: "inherit" }}
+              />
+              <select
+                value={swapIn}
+                onChange={e => handleSwapInChange(e.target.value)}
+                style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 10, padding: "8px 12px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                 {SWAP_TOKENS.filter(s => validOutputTokens(s).length > 0).map(s => <option key={s} value={s}>{tokenEmoji(s)} {s}</option>)}
               </select>
+            </div>
+            <div className="flex gap-2 mt-2 pt-2 border-t border-white/5">
+              <button
+                onClick={() => handleImport(swapIn)}
+                className="text-[10px] text-blue-400 bg-white/5 hover:bg-white/10 px-2 py-1 rounded border border-white/10 cursor-pointer">
+                + MetaMask {swapIn}
+              </button>
+              <button
+                onClick={() => handleMint(swapIn)}
+                disabled={faucetLoading === swapIn}
+                className="text-[10px] text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded border border-emerald-500/30 cursor-pointer">
+                {faucetLoading === swapIn ? "Minting..." : `Mint 100 ${swapIn}`}
+              </button>
             </div>
           </div>
 
           {/* Flip */}
-          <div className="flex justify-center my-1">
-            <button onClick={flipPair}
-              style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#10b981,#064e3b)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(16,185,129,0.35)" }}>
+          <div className="flex justify-center my-1.5">
+            <button
+              onClick={flipPair}
+              title="Switch tokens"
+              style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg,#10b981,#064e3b)", border: "1px solid rgba(16,185,129,0.4)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(16,185,129,0.35)" }}>
               <span key={flipKey} className="flip-inline">
-                <ArrowDownUp size={15} color="#fff" />
+                <ArrowDownUp size={16} color="#fff" />
               </span>
             </button>
           </div>
 
-          {/* Token Out — live on-chain quote */}
-          <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 14, padding: "12px 16px", border: `1px solid ${quoteFormatted ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)"}`, marginBottom: 8, transition: "border-color 0.3s" }}>
-            <div className="flex justify-between mb-2">
-              <span className="text-xs font-bold text-white/40 uppercase tracking-wide">You Receive</span>
-              <span style={{ fontSize: 10, color: quoteFetching ? "#f59e0b" : quoteFormatted ? "#22C55E" : "rgba(255,255,255,0.3)", fontWeight: 700 }}>
-                {quoteFetching ? "fetching..." : routingPool ? `via ${routingPool.pair} pool` : swapAmt ? "no pool for this pair" : "enter amount"}
+          {/* Token Out */}
+          <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 14, padding: "12px 16px", border: `1px solid ${quoteFormatted ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.06)"}`, marginBottom: 12, transition: "border-color 0.3s" }}>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-bold text-white/40 uppercase tracking-wide">You Receive (Estimated)</span>
+              <span style={{ fontSize: 11, color: quoteFetching ? "#f59e0b" : quoteFormatted ? "#22C55E" : "rgba(255,255,255,0.4)", fontWeight: 700 }}>
+                {quoteFetching ? "fetching quote..." : routingPool ? `via ${routingPool.pair} pool` : "enter amount"}
               </span>
             </div>
             <div className="flex items-center gap-3">
               {/* Display-only quoted output */}
               <div key={`${quoteFormatted ?? "empty"}-${quoteFetching}`} className="quote-pop" style={{ flex: 1, fontSize: 28, fontWeight: 900, color: quoteFormatted ? "#fff" : "rgba(255,255,255,0.2)", fontFamily: "inherit", minHeight: 40, display: "flex", alignItems: "center" }}>
                 {quoteFetching ? (
-                  <span style={{ fontSize: 16, color: "#f59e0b" }}>calculating...</span>
+                  <span style={{ fontSize: 16, color: "#f59e0b" }}>Calculating best rate...</span>
                 ) : quoteFormatted ? (
                   quoteFormatted
                 ) : (
-                  <span style={{ fontSize: 16 }}>-</span>
+                  <span style={{ fontSize: 18 }}>0.00</span>
                 )}
               </div>
-              <select value={swapOut} onChange={e => { setSwapOut(e.target.value); setSwapAmt(""); }}
-                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "6px 10px", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              <select
+                value={swapOut}
+                onChange={e => { setSwapOut(e.target.value); }}
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "8px 12px", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                 {validOutputTokens(swapIn).map(s => <option key={s} value={s}>{tokenEmoji(s)} {s}</option>)}
               </select>
+            </div>
+            <div className="flex gap-2 mt-2 pt-2 border-t border-white/5">
+              <button
+                onClick={() => handleImport(swapOut)}
+                className="text-[10px] text-blue-400 bg-white/5 hover:bg-white/10 px-2 py-1 rounded border border-white/10 cursor-pointer">
+                + MetaMask {swapOut}
+              </button>
+              <button
+                onClick={() => handleMint(swapOut)}
+                disabled={faucetLoading === swapOut}
+                className="text-[10px] text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded border border-emerald-500/30 cursor-pointer">
+                {faucetLoading === swapOut ? "Minting..." : `Mint 100 ${swapOut}`}
+              </button>
             </div>
           </div>
 
@@ -599,7 +699,7 @@ export default function PoolsPage() {
               : `Swap ${swapAmt} ${swapIn} -> ${quoteFormatted} ${swapOut}`}
           </button>
           {!isConnected && (
-            <button onClick={() => setShowModal(true)} className="mt-2 w-full py-2.5 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-white/60 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5">
+            <button onClick={() => setShowModal(true)} className="mt-2 w-full py-2.5 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-white/60 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
               <Wallet size={13} /> Connect wallet to swap
             </button>
           )}
@@ -611,7 +711,6 @@ export default function PoolsPage() {
         <div className="glass rounded-2xl p-5" style={{ border: "1px solid rgba(52,211,153,0.2)" }}>
           <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-4">Manage Liquidity</p>
 
-          {/* Pool selector */}
           <div style={{ marginBottom: 14 }}>
             <label className="text-xs font-bold text-white/40 uppercase tracking-wider block mb-2">Pool</label>
             <select value={liqPool} onChange={e => { setLiqPool(e.target.value); setLiqAmtA(""); setLiqAmtB(""); setLpAmt(""); }}
@@ -620,11 +719,10 @@ export default function PoolsPage() {
             </select>
           </div>
 
-          {/* Add / Remove toggle */}
           <div className="flex gap-2 bg-black/20 p-1 rounded-xl mb-4">
             {(["add","remove"] as const).map(m => (
               <button key={m} onClick={() => setLiqMode(m)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${liqMode === m ? "bg-[#34d399] text-[#1B4332] shadow-lg shadow-[#34d399]/25" : "text-white/50"}`}>
+                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${liqMode === m ? "bg-[#34d399] text-[#1B4332] shadow-lg shadow-[#34d399]/25" : "text-white/50"}`}>
                 {m === "add" ? "Add Liquidity" : "Remove Liquidity"}
               </button>
             ))}
@@ -683,7 +781,7 @@ export default function PoolsPage() {
                       <input type="number" value={lpAmt} onChange={e => setLpAmt(e.target.value)} placeholder="0.00"
                         style={{ background: "transparent", border: "none", outline: "none", fontSize: 20, fontWeight: 800, color: "#fff", width: "100%", fontFamily: "inherit" }} />
                     </div>
-                    <button onClick={handleRemoveLiquidity} disabled={busy || !lpAmt || !pool?.address} style={{
+                    <button disabled={busy || !lpAmt || !pool?.address} style={{
                       width: "100%", padding: 12, borderRadius: 12, border: "none", fontWeight: 800, fontSize: 14,
                       background: busy || !lpAmt ? "rgba(255,255,255,0.08)" : "linear-gradient(135deg,#F97316,#ea580c)",
                       color: "#fff", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1,
@@ -760,7 +858,7 @@ export default function PoolsPage() {
         </div>
       )}
 
-      {/* Pool drawer (legacy simulator — keeping for UX) */}
+      {/* Pool drawer */}
       <PoolDrawer
         token={selectedToken}
         onClose={() => setSelectedToken(null)}

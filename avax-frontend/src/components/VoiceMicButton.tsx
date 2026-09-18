@@ -23,6 +23,7 @@ export default function VoiceMicButton({
 
   const {
     isListening,
+    isProcessing,
     isSpeaking,
     interimTranscript,
     isSupported,
@@ -52,7 +53,7 @@ export default function VoiceMicButton({
   return (
     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }} className={className}>
       {/* Live Speech Feedback Tooltip */}
-      {(isListening || liveText) && (
+      {(isListening || isProcessing || liveText) && (
         <div
           style={{
             position: 'absolute',
@@ -80,13 +81,13 @@ export default function VoiceMicButton({
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background: isListening ? '#34d399' : '#10b981',
+                  background: isListening ? '#34d399' : isProcessing ? '#f59e0b' : '#10b981',
                   boxShadow: isListening ? '0 0 8px #34d399' : 'none',
-                  animation: isListening ? 'pulse 1s infinite' : 'none',
+                  animation: isListening || isProcessing ? 'pulse 1s infinite' : 'none',
                 }}
               />
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#34d399', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {isListening ? 'Listening…' : 'Heard'}
+              <span style={{ fontSize: 10, fontWeight: 800, color: isProcessing ? '#f59e0b' : '#34d399', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {isProcessing ? 'Transcribing…' : isListening ? 'Listening…' : 'Heard'}
               </span>
             </div>
 
@@ -113,7 +114,13 @@ export default function VoiceMicButton({
           </div>
 
           <p style={{ margin: 0, fontSize: 12, color: '#fff', fontWeight: 500, lineHeight: 1.4, wordBreak: 'break-word' }}>
-            {interimTranscript || liveText || 'Speak your command… (e.g. "Transfer 10 NVR", "Take me to vaults")'}
+            {isProcessing ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Processing voice audio with Gemini…
+              </span>
+            ) : (
+              interimTranscript || liveText || 'Speak your command… (e.g. "What is NVR?", "Show vaults")'
+            )}
           </p>
         </div>
       )}
@@ -122,8 +129,8 @@ export default function VoiceMicButton({
       <button
         type="button"
         onClick={toggleListening}
-        disabled={disabled}
-        title={isListening ? 'Stop listening' : 'Speak with KAI Agent'}
+        disabled={disabled || isProcessing}
+        title={isListening ? 'Stop listening' : 'Speak with KAI Gemini Agent'}
         style={{
           width: buttonSize,
           height: buttonSize,
@@ -132,15 +139,21 @@ export default function VoiceMicButton({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          cursor: disabled || isProcessing ? 'not-allowed' : 'pointer',
           background: isListening
             ? 'linear-gradient(135deg, #34d399 0%, #10b981 50%, #047857 100%)'
+            : isProcessing
+            ? 'rgba(245,158,11,0.15)'
             : 'rgba(16,185,129,0.12)',
-          border: isListening ? '2px solid #6ee7b7' : '1px solid rgba(16,185,129,0.3)',
+          border: isListening
+            ? '2px solid #6ee7b7'
+            : isProcessing
+            ? '1px solid rgba(245,158,11,0.5)'
+            : '1px solid rgba(16,185,129,0.3)',
           boxShadow: isListening
             ? '0 0 24px rgba(16,185,129,0.8), 0 0 6px rgba(255,255,255,0.5)'
             : '0 2px 8px rgba(0,0,0,0.2)',
-          color: isListening ? '#ffffff' : '#34d399',
+          color: isListening ? '#ffffff' : isProcessing ? '#f59e0b' : '#34d399',
           transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
           flexShrink: 0,
         }}
@@ -163,7 +176,7 @@ export default function VoiceMicButton({
                 position: 'absolute',
                 inset: -12,
                 borderRadius: '50%',
-                border: '1px solid rgba(52,211,153,0.3)',
+                border: '2px solid rgba(52,211,153,0.3)',
                 animation: 'pulse 1.4s 0.4s ease-out infinite',
                 pointerEvents: 'none',
               }}
@@ -171,7 +184,9 @@ export default function VoiceMicButton({
           </>
         )}
 
-        {isListening ? (
+        {isProcessing ? (
+          <Loader2 size={iconSize} color="#f59e0b" style={{ animation: 'spin 1s linear infinite' }} />
+        ) : isListening ? (
           <Mic size={iconSize} color="#fff" strokeWidth={2.4} />
         ) : (
           <Mic size={iconSize} color="#34d399" strokeWidth={2} />
