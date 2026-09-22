@@ -31,7 +31,7 @@ It's built to feel like a **bank + exchange + AI analyst** in one wallet.
 ## ✨ Features
 
 ### Frontend (`avax-frontend/`)
-- **20+ routes** — Hub, Vaults, Liquidity Pools, Swap, Payments, Voice Agent, Insurance, Pension, SDG, Securities, SME, TaaS, Chama, NFTs (connft), Profile, Wallet & more
+- **20+ routes** — Hub, Vaults, Liquidity Pools, Swap, Payments, Voice Agent, Insurance, Pension, SDG, Securities, SME, Avajaz, Chama, NFTs (connft), Profile, Wallet & more
 - **Real on-chain AMM** — swap, add/remove liquidity against `KaiAMM` / `KaiPool` on Fuji (wagmi + viem)
 - **Interactive liquidity canvas** — physics-driven bubble graph of token pools (drag, hover, tap-to-open)
 - **Live pool intelligence** — animated TVL/APY counters, real-time sparkline charts, fee + price-impact breakdowns, slippage guards

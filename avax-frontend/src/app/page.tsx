@@ -45,7 +45,7 @@ const QUICK = [
   { name: 'Vaults',      href: '/vaults',     icon: Lock },
   { name: 'Airdrop',     href: '/mine',       icon: Gift },
   { name: 'KAI Web',     href: '/kai',        icon: Globe },
-  { name: 'TaaS',        href: '/taas',       icon: LayoutGrid },
+  { name: 'Avajaz',      href: '/avajaz',     icon: LayoutGrid },
 ];
 
 const DASHBOARDS = [
